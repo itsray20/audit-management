@@ -13,6 +13,7 @@ import AuditTrail from './components/AuditTrail';
 // In production (Vercel), VITE_API_URL points to the Render backend.
 // In local dev, it's empty so the Vite proxy handles /api → localhost:5000.
 const API_BASE = import.meta.env.VITE_API_URL || '';
+axios.defaults.baseURL = API_BASE;
 
 
 export default function App() {
@@ -463,7 +464,7 @@ export default function App() {
 
               {/* Export Button */}
               <a
-                href={`/api/audits/${activeSession.id}/export`}
+                href={`${API_BASE}/api/audits/${activeSession.id}/export`}
                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border border-blue-200 dark:border-blue-800/40 rounded-lg bg-blue-50/50 hover:bg-blue-50 text-blue-600 dark:bg-blue-950/20 dark:text-blue-400 dark:hover:bg-blue-950/30 transition-colors"
                 download
               >
