@@ -1,0 +1,235 @@
+================================================================================
+                    PHARMACY AUDIT APPLICATION
+                    SOFTWARE REQUIREMENT DOCUMENT
+================================================================================
+Version: 1.0
+Prepared For: Development / Project Team
+Module: Pharmacy Stock Audit Management System
+
+
+--------------------------------------------------------------------------------
+1. PROJECT BACKGROUND
+--------------------------------------------------------------------------------
+We conduct physical stock audits across multiple pharmacy stores. Audit data
+is currently recorded manually in spreadsheets by multiple auditors working
+on the same file. This leads to data entry errors, lost work, and a final
+report that takes around 4 hours to prepare because all totals and summaries
+are checked and calculated by hand.
+
+We require a centralized web/desktop application that:
+- Reduces human error in data entry
+- Allows multiple auditors to work on the same audit simultaneously
+- Calculates all totals, differences, and summaries automatically
+- Produces the final audit report within minutes instead of hours
+
+
+--------------------------------------------------------------------------------
+2. PROBLEMS WITH THE CURRENT PROCESS
+--------------------------------------------------------------------------------
+
+2.1 Data Entry Issues
+- Incorrect quantities, rates, or item details are entered by mistake
+- Accidental key presses (function keys, etc.) change screens or fields and
+  alter data without the user noticing
+- Entered data is sometimes not saved; auditors cannot identify which rows
+  were skipped until the final reporting stage
+- No validation system exists to flag unusual values or mistakes
+
+2.2 Reporting Issues
+- A single incorrect quantity requires the entire report to be re-checked
+- Even formula-based sheets allow numbers to be accidentally overwritten
+- Preparing the final report takes approximately 4 hours, most of which is
+  spent re-validating data and manually re-calculating summary totals
+
+
+--------------------------------------------------------------------------------
+3. AUDIT DATA STRUCTURE
+--------------------------------------------------------------------------------
+This section defines exactly what data the system must track and how it must
+be structured. This is based on our actual audit records and is more detailed
+than a basic item/quantity list.
+
+3.1 Unit of Audit: Item + Batch
+Every stock line is a unique combination of:
+- Item Name
+- Batch Number
+- Expiry Date
+Two different batches of the same item must be tracked and audited as
+separate records.
+
+3.2 Pack-Level and Unit-Level Data
+Each stock line must store rate and value information at both levels:
+- Pack Size
+- Pack MRP and Unit MRP
+- Pack Purchase Rate and Unit Purchase Rate
+- Stock MRP Value and Stock Purchase Value
+All calculations must be capable of using either pack-level or unit-level
+figures.
+
+3.3 Multi-Location and Multi-Supplier Support
+Every stock line must record:
+- Location
+- Store Name
+- Supplier
+The system must support multiple stores and multiple suppliers within a
+single audit, not just one pharmacy.
+
+3.4 Multiple Auditors Per Item
+Multiple auditors must be able to independently enter a physical count for
+the same item/batch. Each auditor's entry should optionally include an
+expiry check and remarks. The system must:
+- Allow any number of auditors to be assigned to an audit (not a fixed
+  number of columns)
+- Automatically sum all auditors' counts into a single Total Physical
+  Quantity for that item/batch
+
+3.5 Audit Result Categories
+Differences between system quantity and physical quantity must be classified
+into the following categories automatically:
+- Excess        : physical count higher than system quantity
+- Shortage       : physical count lower than system quantity
+- Extra Found    : item physically present but not expected/listed in the
+                   system at all
+- Expired Stock  : items past expiry date, tracked separately
+- Other          : items that do not fit cleanly into the above categories
+                   (e.g. high-value equipment or special line items)
+
+Each category must be viewable as its own filtered report, and the
+classification rules must be configurable (not hardcoded), since the rules
+may need to change over time.
+
+
+--------------------------------------------------------------------------------
+4. FUNCTIONAL REQUIREMENTS
+--------------------------------------------------------------------------------
+
+4.1 Multi-User Data Entry
+- Multiple auditors can enter data on the same audit at the same time
+- All users see other users' entries in real time
+- Total quantity is calculated automatically as auditors enter their counts
+- Changes are reflected immediately for all users viewing the audit
+
+Example:
+  Item Name     | Auditor 1 | Auditor 2 | Auditor 3 | Total Qty
+  Paracetamol   |    100    |    50     |    25     |   175
+
+4.2 Row Locking and Editing Control
+- Completed rows can be locked to prevent accidental edits
+- Only authorized users (e.g. Audit Manager) can unlock and edit a locked
+  row
+- Every edit made to a locked or already-completed row must be recorded in
+  the audit trail
+
+4.3 Audit Trail / Change Log
+For every edit made in the system, the following must be recorded:
+- User Name
+- Date and Time
+- Old Value
+- New Value
+- Reason for Change
+
+4.4 Data Validation
+- Quantity fields cannot accept negative values
+- Purchase Rate cannot be left blank
+- Item Name must be selected from a predefined master item list (no free
+  text entry)
+- The system must highlight abnormal values and flag duplicate entries
+- The system must prevent accidental overwriting of already-saved data
+
+4.5 Auto-Save
+- Data must be saved automatically every few seconds
+- No data should be lost due to power failure, application crash, or
+  accidental navigation
+- Any incomplete or skipped row must be clearly flagged in the interface,
+  not discovered only at the final report stage
+
+
+--------------------------------------------------------------------------------
+5. AUDIT CALCULATIONS
+--------------------------------------------------------------------------------
+
+5.1 Input Fields (per Item + Batch)
+- Item Name, Batch Number, Expiry Date
+- Location, Store Name, Supplier
+- System Quantity (as per software/inventory system)
+- Physical Quantity entered by each assigned auditor
+- Pack Size, Pack MRP, Unit MRP, Pack Purchase Rate, Unit Purchase Rate
+
+5.2 System-Calculated Fields (must never be manually entered)
+- Total Physical Quantity   = Sum of all auditors' counts for that item/batch
+- Difference Quantity        = Total Physical Quantity − System Quantity
+- Total Stock Value          = System Quantity × Purchase Rate
+- Difference Value           = Difference Quantity × Purchase Rate
+- Result Category            = Automatically assigned based on Section 3.5
+                                rules
+
+5.3 Report Format (per Item/Batch)
+  Item Name | Batch No | Expiry Date | System Qty | Physical Qty |
+  Difference Qty | Purchase Rate | Total Stock Value | Difference Value |
+  Category
+
+
+--------------------------------------------------------------------------------
+6. SUMMARY DASHBOARD
+--------------------------------------------------------------------------------
+The summary dashboard is the most important automation requirement, since
+manual summary preparation is the largest contributor to the current 4-hour
+reporting time. All values below must be calculated live by the system and
+must update automatically as underlying data changes. No summary figure
+should ever require manual entry.
+
+The dashboard must display:
+- Total Stock Value (across all audited items)
+- Total Excess Value (sum of all positive difference values)
+- Total Shortage Value (sum of all negative difference values)
+- Extra Found Value (value of items found but not present in the system)
+- Gross Shortage and Net Shortage (shortage after offsetting Extra Found)
+- Net Audit Difference = Total Excess Value − Total Shortage Value
+- Total Items Audited
+- Category-wise breakdown (Excess / Shortage / Extra Found / Expired /
+  Other)
+- Location-wise and Supplier-wise breakdown
+
+
+--------------------------------------------------------------------------------
+7. ADDITIONAL FEATURES
+--------------------------------------------------------------------------------
+
+7.1 User Roles and Permissions
+- Admin
+- Audit Manager
+- Auditor
+- Data Entry Operator
+
+7.2 Export Options
+- Export to PDF
+- Export to Excel (with the same category breakdown as the dashboard)
+
+7.3 Search and Filter
+- Search by Item Name, Batch Number, Location, or Supplier
+- Filter by result category (Excess / Shortage / Extra Found / Expired /
+  Other)
+
+7.4 Audit Trail
+- Complete history of all edits and changes across the audit (see Section
+  4.3)
+
+7.5 Backup
+- Automatic cloud backup of all audit data
+
+
+--------------------------------------------------------------------------------
+8. EXPECTED OUTCOMES
+--------------------------------------------------------------------------------
+- Reduced data entry errors
+- No accidental changes to system-calculated values
+- No data loss due to crashes, power failure, or unsaved entries
+- Final report preparation time reduced from ~4 hours to a few minutes
+- Multiple auditors able to work on the same audit simultaneously, with
+  counts combined automatically
+- Improved accuracy, consistency, and transparency of pharmacy audits
+  across multiple stores, suppliers, and item batches
+
+================================================================================
+                              END OF DOCUMENT
+================================================================================

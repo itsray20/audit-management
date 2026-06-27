@@ -1,0 +1,48 @@
+# Supabase Migration Plan
+
+## Goal
+Migrate the Pharmacy Audit backend database from local SQLite to cloud-hosted Supabase (PostgreSQL) so the application can be accessed from anywhere via a browser.
+
+## Credentials
+- Supabase credentials are stored in `server/.env` (not committed to git)
+
+## Strategy
+Use `@supabase/supabase-js` (the official Supabase JS client) instead of the `pg` library, as it works natively with our secret key. All complex SQL queries will be migrated to use Supabase's JavaScript query builder.
+
+---
+
+## Proposed Changes
+
+### Backend
+
+#### [MODIFY] server/package.json
+- Remove: `sqlite3`, `better-sqlite3`
+- Add: `@supabase/supabase-js`, `dotenv`
+
+#### [NEW] server/.env
+- `SUPABASE_URL=<your-project-url>`
+- `SUPABASE_SECRET_KEY=<your-secret-key>`
+
+#### [MODIFY] server/db.js
+- Remove all SQLite code
+- Create and export Supabase client using env vars
+
+#### [MODIFY] server/server.js
+- Replace all `run()`, `get()`, `all()` SQLite calls with Supabase client queries
+- Keep all API routes and business logic identical
+
+#### [MODIFY] server/import.js
+- Replace SQLite batch inserts with Supabase batch upserts
+
+#### [MODIFY] server/export.js
+- Replace SQLite queries with Supabase queries
+
+### SQL Schema (run in Supabase SQL Editor)
+- Create all 5 tables in PostgreSQL syntax
+- Seed default users
+
+## Verification Plan
+1. Restart server and check it connects to Supabase without error
+2. Create an audit session via the API
+3. Import an Excel file and verify rows appear in Supabase dashboard
+4. Test auditor count updates reflect in real time
