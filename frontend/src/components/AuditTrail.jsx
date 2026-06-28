@@ -1,7 +1,23 @@
 import React from 'react';
 import { History, RefreshCw } from 'lucide-react';
 
-export default function AuditTrail({ trail, onRefresh, isLoading }) {
+export default function AuditTrail({ trail, onRefresh, isLoading, roleNamesMap = {} }) {
+  const formatFieldName = (field) => {
+    if (!field) return '';
+    const match = field.match(/^Auditor Count \(([^)]+)\)$/);
+    if (match) {
+      const slot = match[1];
+      const displayName = roleNamesMap[slot] || slot;
+      return `Auditor Count (${displayName})`;
+    }
+    return field;
+  };
+
+  const cleanValue = (val) => {
+    if (!val) return '';
+    return val.replace(/\s*\(Exp:[01]\)/ig, '');
+  };
+
   return (
     <div className="glass rounded-2xl overflow-hidden">
       <div className="flex justify-between items-center px-6 py-4" style={{ borderBottom: '1px solid var(--glass-border-dim)' }}>
@@ -29,9 +45,18 @@ export default function AuditTrail({ trail, onRefresh, isLoading }) {
         <table className="w-full border-collapse text-left text-xs">
           <thead className="sticky top-0" style={{ background: 'var(--glass-bg)', borderBottom: '1px solid var(--glass-border-dim)' }}>
             <tr>
-              {['Timestamp', 'Auditor / User', 'Item Name', 'Batch', 'Field', 'Old Value', 'New Value', 'Reason'].map(col => (
-                <th key={col} className="px-4 py-2.5 font-semibold uppercase tracking-wide text-[10px]" style={{ color: 'var(--text-tertiary)' }}>{col}</th>
-              ))}
+              {['Timestamp', 'Auditor / User', 'Item Name', 'Batch', 'Field', 'Old Value', 'New Value', 'Reason'].map(col => {
+                const isCenter = col === 'Old Value' || col === 'New Value';
+                return (
+                  <th
+                    key={col}
+                    className={`px-4 py-2.5 font-semibold uppercase tracking-wide text-[10px] ${isCenter ? 'text-center' : 'text-left'}`}
+                    style={{ color: 'var(--text-tertiary)', textAlign: isCenter ? 'center' : 'left' }}
+                  >
+                    {col}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -49,32 +74,35 @@ export default function AuditTrail({ trail, onRefresh, isLoading }) {
                 </td>
               </tr>
             ) : (
-              trail.map((log) => (
-                <tr
-                  key={log.id}
-                  className="glass-row-hover transition-colors"
-                  style={{ borderBottom: '1px solid var(--glass-border-dim)' }}
-                >
-                  <td className="px-4 py-2.5 font-mono" style={{ color: 'var(--text-tertiary)' }}>
-                    {new Date(log.timestamp).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-2.5 font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {log.user_name}
-                  </td>
-                  <td className="px-4 py-2.5 max-w-xs truncate font-medium" style={{ color: 'var(--text-primary)' }}>
-                    {log.item_name}
-                  </td>
-                  <td className="px-4 py-2.5 font-mono" style={{ color: 'var(--text-secondary)' }}>{log.batch_no}</td>
-                  <td className="px-4 py-2.5 font-semibold" style={{ color: 'var(--accent)' }}>
-                    {log.field_name}
-                  </td>
-                  <td className="px-4 py-2.5 text-center font-mono" style={{ color: 'var(--text-tertiary)' }}>{log.old_value || '—'}</td>
-                  <td className="px-4 py-2.5 text-center font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{log.new_value || '—'}</td>
-                  <td className="px-4 py-2.5 italic" style={{ color: 'var(--text-secondary)' }}>
-                    {log.reason || 'N/A'}
-                  </td>
-                </tr>
-              ))
+              trail.map((log) => {
+                const mappedUser = roleNamesMap[log.user_name] || log.user_name;
+                return (
+                  <tr
+                    key={log.id}
+                    className="glass-row-hover transition-colors"
+                    style={{ borderBottom: '1px solid var(--glass-border-dim)' }}
+                  >
+                    <td className="px-4 py-2.5 font-mono" style={{ color: 'var(--text-tertiary)' }}>
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-2.5 font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {mappedUser}
+                    </td>
+                    <td className="px-4 py-2.5 max-w-xs truncate font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {log.item_name}
+                    </td>
+                    <td className="px-4 py-2.5 font-mono" style={{ color: 'var(--text-secondary)' }}>{log.batch_no}</td>
+                    <td className="px-4 py-2.5 font-semibold" style={{ color: 'var(--accent)' }}>
+                      {formatFieldName(log.field_name)}
+                    </td>
+                    <td className="px-4 py-2.5 text-center font-mono" style={{ color: 'var(--text-tertiary)', textAlign: 'center' }}>{cleanValue(log.old_value) || '—'}</td>
+                    <td className="px-4 py-2.5 text-center font-mono font-semibold" style={{ color: 'var(--text-primary)', textAlign: 'center' }}>{cleanValue(log.new_value) || '—'}</td>
+                    <td className="px-4 py-2.5 italic" style={{ color: 'var(--text-secondary)' }}>
+                      {log.reason || 'N/A'}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

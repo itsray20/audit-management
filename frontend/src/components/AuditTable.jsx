@@ -75,6 +75,23 @@ function InlineCountCell({ item, auditorName, currentUser, auditIsLocked, onSave
   const alwaysRenderInput = isEditableColumn && isAdmin && bulkEditMode;
 
   useEffect(() => {
+    const handleTriggerEdit = (e) => {
+      if (e.detail.rowIdx === rowIdx && e.detail.colIdx === colIdx) {
+        setEditing(true);
+      }
+    };
+    window.addEventListener('trigger-inline-edit', handleTriggerEdit);
+    return () => window.removeEventListener('trigger-inline-edit', handleTriggerEdit);
+  }, [rowIdx, colIdx]);
+
+  const triggerNextEdit = (targetRowIdx, targetColIdx) => {
+    const event = new CustomEvent('trigger-inline-edit', {
+      detail: { rowIdx: targetRowIdx, colIdx: targetColIdx }
+    });
+    window.dispatchEvent(event);
+  };
+
+  useEffect(() => {
     setLocalVal(existingCount?.physical_count ?? '');
   }, [existingCount?.physical_count]);
 
@@ -119,6 +136,8 @@ function InlineCountCell({ item, auditorName, currentUser, auditIsLocked, onSave
         if (nextInput) {
           nextInput.focus();
           nextInput.select();
+        } else {
+          triggerNextEdit(rowIdx + 1, colIdx);
         }
       }, 30);
     } else if (e.key === 'ArrowUp') {
@@ -129,6 +148,8 @@ function InlineCountCell({ item, auditorName, currentUser, auditIsLocked, onSave
         if (prevInput) {
           prevInput.focus();
           prevInput.select();
+        } else {
+          triggerNextEdit(rowIdx - 1, colIdx);
         }
       }, 30);
     } else if (e.key === 'ArrowRight' && (bulkEditMode || alwaysRenderInput)) {
@@ -169,6 +190,7 @@ function InlineCountCell({ item, auditorName, currentUser, auditIsLocked, onSave
             onChange={(e) => setLocalVal(e.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={() => save(localVal)}
+            onFocus={(e) => e.target.select()}
             className={`w-14 text-center text-xs font-mono px-1 py-0.5 rounded border bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-[#0071e3] focus:border-[#0071e3] transition-all ${
               isCurrentAuditorHighlight ? 'ring-1 ring-[#0071e3] border-[#0071e3]' : ''
             }`}
@@ -198,6 +220,7 @@ function InlineCountCell({ item, auditorName, currentUser, auditIsLocked, onSave
               onChange={(e) => setLocalVal(e.target.value)}
               onKeyDown={handleKeyDown}
               onBlur={() => save(localVal)}
+              onFocus={(e) => e.target.select()}
               className="w-14 text-center text-xs font-mono px-1 py-0.5 rounded border border-[#0071e3] focus:outline-none bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50"
               autoFocus
             />
@@ -217,8 +240,8 @@ function InlineCountCell({ item, auditorName, currentUser, auditIsLocked, onSave
 
   // Read-only cell
   return (
-    <td className="px-1.5 py-1 text-center border-r border-zinc-200 dark:border-zinc-700/60 text-zinc-700 dark:text-zinc-350 font-mono font-semibold">
-      {existingCount?.physical_count ?? <span className="text-zinc-300 dark:text-zinc-705 font-normal">—</span>}
+    <td className="px-1.5 py-1 text-center border-r border-zinc-200 dark:border-zinc-700/60 text-zinc-700 dark:text-zinc-355 font-mono font-semibold">
+      {existingCount?.physical_count ?? <span className="text-zinc-300 dark:text-zinc-700 font-normal">—</span>}
     </td>
   );
 }

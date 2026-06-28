@@ -795,6 +795,44 @@ app.post('/api/items/:id/lock', enforceWritePermission, async (req, res) => {
   }
 });
 
+// Delete Item Row (Admin Only)
+app.delete('/api/items/:id', enforceWritePermission, async (req, res) => {
+  const { id } = req.params;
+  const userRole = req.headers['x-user-role'];
+
+  if (userRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can delete items.' });
+  }
+
+  try {
+    // 1. Delete associated auditor counts
+    const { error: countsErr } = await supabase
+      .from('auditor_counts')
+      .delete()
+      .eq('item_id', id);
+    if (countsErr) throw countsErr;
+
+    // 2. Delete associated audit trail logs
+    const { error: trailErr } = await supabase
+      .from('audit_trail')
+      .delete()
+      .eq('item_id', id);
+    if (trailErr) throw trailErr;
+
+    // 3. Delete the item itself
+    const { error: itemErr } = await supabase
+      .from('items')
+      .delete()
+      .eq('id', id);
+    if (itemErr) throw itemErr;
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // -------------------------------------------------------------
 // ITEM HISTORY ROUTE
 // -------------------------------------------------------------

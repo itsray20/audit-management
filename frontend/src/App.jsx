@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import axios from 'axios';
 import {
   Sun, Moon, Package, UploadCloud, DownloadCloud, Plus, Trash2,
@@ -89,6 +90,11 @@ export default function App() {
   const [newUserForm, setNewUserForm] = useState({ username: '', name: '', password: '' });
   const [pwdChangeTarget, setPwdChangeTarget] = useState({ id: null, username: '', name: '', password: '' });
   const [userMgmtMsg, setUserMgmtMsg] = useState('');
+
+  // Session delete modal
+  const [deleteSessionTarget, setDeleteSessionTarget] = useState(null); // { id, name }
+  const [deleteSessionInput, setDeleteSessionInput] = useState('');
+  const [isDeletingSession, setIsDeletingSession] = useState(false);
 
   // Apply dark/light class
   useEffect(() => {
@@ -240,14 +246,24 @@ export default function App() {
     }
   };
 
-  const handleDeleteSession = async (id) => {
-    if (!window.confirm('Delete this audit session and all its data? This is irreversible.')) return;
+  const handleDeleteSession = (id, name) => {
+    setDeleteSessionTarget({ id, name });
+    setDeleteSessionInput('');
+  };
+
+  const confirmDeleteSession = async () => {
+    if (!deleteSessionTarget) return;
+    setIsDeletingSession(true);
     try {
-      await axios.delete(`/api/audits/${id}`);
+      await axios.delete(`/api/audits/${deleteSessionTarget.id}`);
       setActiveSession(null);
+      setDeleteSessionTarget(null);
+      setDeleteSessionInput('');
       await fetchSessions();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to delete session.');
+    } finally {
+      setIsDeletingSession(false);
     }
   };
 
@@ -536,14 +552,18 @@ export default function App() {
 
       {/* Create Session Modal */}
       {isCreatingSession && isAdmin && (
-        <div className="glass-backdrop fixed inset-0 flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 flex justify-center items-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)' }}>
           <div 
-            className="glass-lg rounded-2xl max-w-sm w-full p-5 relative"
             style={{
+              width: '100%',
+              maxWidth: '400px',
               animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)',
               background: isDark ? 'var(--glass-bg-heavy)' : '#ffffff',
               border: '1px solid var(--glass-border)',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.22)'
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+              borderRadius: '20px',
+              padding: '28px 28px 24px 28px',
+              position: 'relative'
             }}
           >
             <button
@@ -553,8 +573,8 @@ export default function App() {
             >
               <X className="h-4 w-4" />
             </button>
-            <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Start New Audit Session</h3>
-            <p className="text-[11px] mb-4" style={{ color: 'var(--text-tertiary)' }}>Fill in the details to begin a new stock audit cycle.</p>
+            <h3 className="text-base font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Start New Audit Session</h3>
+            <p className="text-[11px] mb-5" style={{ color: 'var(--text-tertiary)' }}>Fill in the details to begin a new stock audit cycle.</p>
             <form onSubmit={handleCreateSession} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>Session Name</label>
@@ -564,7 +584,7 @@ export default function App() {
                   placeholder="e.g. Kukatpally June 2026"
                   value={newSessionName}
                   onChange={(e) => setNewSessionName(e.target.value)}
-                  className="glass-input w-full text-xs px-3 py-2.5 rounded-xl focus:outline-none"
+                  className="glass-input w-full text-sm px-3.5 py-2.5 rounded-xl focus:outline-none"
                   style={{ color: 'var(--text-primary)' }}
                 />
               </div>
@@ -575,12 +595,12 @@ export default function App() {
                   required
                   value={newSessionDate}
                   onChange={(e) => setNewSessionDate(e.target.value)}
-                  className="glass-input w-full text-xs px-3 py-2.5 rounded-xl focus:outline-none"
+                  className="glass-input w-full text-sm px-3.5 py-2.5 rounded-xl focus:outline-none"
                   style={{ color: 'var(--text-primary)' }}
                 />
               </div>
-              <button type="submit" className="btn-glass-primary w-full flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-xl">
-                <Play className="h-3.5 w-3.5" /> Launch Audit
+              <button type="submit" className="btn-glass-primary w-full flex justify-center items-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl" style={{ marginTop: '8px' }}>
+                <Play className="h-4 w-4" /> Launch Audit
               </button>
             </form>
           </div>
@@ -674,7 +694,7 @@ export default function App() {
 
               {/* Admin: Delete Session */}
               {isAdmin && (
-                <button onClick={() => handleDeleteSession(activeSession.id)} className="p-2 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-rose-50 hover:border-rose-200 dark:hover:bg-rose-950/20 text-rose-500 transition-colors" title="Delete Session">
+                <button onClick={() => handleDeleteSession(activeSession.id, activeSession.name)} className="p-2 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-rose-50 hover:border-rose-200 dark:hover:bg-rose-950/20 text-rose-500 transition-colors" title="Delete Session">
                   <Trash2 className="h-4 w-4" />
                 </button>
               )}
@@ -725,18 +745,40 @@ export default function App() {
 
         {/* Content Area */}
         {!activeSession ? (
-          <div className="glass-lg rounded-2xl p-12 text-center max-w-xl mx-auto space-y-4">
-            <Package className="h-12 w-12 mx-auto" style={{ color: 'var(--text-tertiary)' }} />
-            <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>No Active Audit Session</h3>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {isAdmin ? 'Create an audit session to begin.' : 'Ask your administrator to start or select an audit session.'}
-            </p>
-            {isAdmin && (
-              <button onClick={() => setIsCreatingSession(true)} className="btn-glass-primary inline-flex justify-center items-center gap-1.5 px-4 py-2 text-sm">
-                <Plus className="h-4 w-4" /> Create Audit Session
-              </button>
-            )}
+          <div className="flex justify-center items-start pt-8">
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '400px',
+                background: isDark ? 'var(--glass-bg-heavy)' : '#ffffff',
+                border: '1px solid var(--glass-border)',
+                borderRadius: '20px',
+                padding: '40px 32px',
+                boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{
+                width: 56, height: 56,
+                borderRadius: '16px',
+                background: isDark ? 'rgba(255,255,255,0.06)' : '#f4f4f5',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 16px'
+              }}>
+                <Package className="h-7 w-7" style={{ color: 'var(--text-tertiary)' }} />
+              </div>
+              <h3 className="text-base font-bold mb-2" style={{ color: 'var(--text-primary)' }}>No Active Audit Session</h3>
+              <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                {isAdmin ? 'Create an audit session to begin.' : 'Ask your administrator to start or select an audit session.'}
+              </p>
+              {isAdmin && (
+                <button onClick={() => setIsCreatingSession(true)} className="btn-glass-primary inline-flex justify-center items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl">
+                  <Plus className="h-4 w-4" /> Create Audit Session
+                </button>
+              )}
+            </div>
           </div>
+
         ) : activeTab === 'user-mgmt' && isAdmin ? (
           <div className="space-y-6">
             <div className="pb-4" style={{ borderBottom: '1px solid var(--glass-border-dim)' }}>
@@ -1121,7 +1163,7 @@ export default function App() {
                             </a>
                             {isAdmin && (
                               <button
-                                onClick={() => handleDeleteSession(s.id)}
+                                onClick={() => handleDeleteSession(s.id, s.name)}
                                 className="p-1.5 rounded-xl transition-all"
                                 style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.2)', color: '#FF3B30' }}
                                 title="Delete Session"
@@ -1137,7 +1179,7 @@ export default function App() {
                 </div>
               )}
               {activeTab === 'trail' && (
-                <AuditTrail trail={generalTrail} onRefresh={fetchGeneralTrail} isLoading={isLoadingTrail} />
+                <AuditTrail trail={generalTrail} onRefresh={fetchGeneralTrail} isLoading={isLoadingTrail} roleNamesMap={roleNamesMap} />
               )}
             </div>
 
@@ -1165,6 +1207,8 @@ export default function App() {
                         auditIsLocked={auditIsLocked}
                         onClose={() => setSelectedItem(null)}
                         onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }}
+                        isDark={isDark}
+                        roleNamesMap={roleNamesMap}
                       />
                     </div>
                   </div>
@@ -1178,6 +1222,8 @@ export default function App() {
                     auditIsLocked={auditIsLocked}
                     onClose={() => setSelectedItem(null)}
                     onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }}
+                    isDark={isDark}
+                    roleNamesMap={roleNamesMap}
                   />
                 </div>
               </>
@@ -1185,6 +1231,135 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Delete Session Confirmation Portal — renders at document.body level */}
+      {deleteSessionTarget && ReactDOM.createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)'
+          }}
+          onClick={() => setDeleteSessionTarget(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)',
+              background: isDark ? '#1c1c1e' : '#ffffff',
+              border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)',
+              boxShadow: '0 32px 80px rgba(0,0,0,0.35)',
+              borderRadius: '22px',
+              padding: '32px 28px 28px',
+              textAlign: 'center'
+            }}
+          >
+            {/* Warning Icon */}
+            <div style={{
+              width: 60, height: 60,
+              borderRadius: '18px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 20px',
+              color: 'rgb(239, 68, 68)'
+            }}>
+              <AlertTriangle style={{ width: 28, height: 28 }} />
+            </div>
+
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4, color: isDark ? '#f4f4f5' : '#111827', letterSpacing: '-0.02em' }}>
+              Delete Audit Session
+            </h3>
+            <div style={{
+              display: 'inline-block',
+              padding: '4px 12px',
+              borderRadius: '9999px',
+              fontSize: '13px',
+              fontWeight: 700,
+              background: 'rgba(239, 68, 68, 0.1)',
+              color: '#ef4444',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              marginBottom: 16
+            }}>
+              {deleteSessionTarget.name}
+            </div>
+            <p style={{ fontSize: 12, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 20, lineHeight: 1.6 }}>
+              This will permanently delete this audit session, including all physical counts, audit trails, and product data. This action cannot be undone.
+            </p>
+
+            <div style={{ textAlign: 'left', marginBottom: 24 }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: isDark ? '#a1a1aa' : '#52525b', marginBottom: 6 }}>
+                Type the audit name <strong style={{ color: '#ef4444' }}>{deleteSessionTarget.name}</strong> to confirm:
+              </label>
+              <input
+                type="text"
+                value={deleteSessionInput}
+                onChange={(e) => setDeleteSessionInput(e.target.value)}
+                placeholder={deleteSessionTarget.name}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  fontSize: '13px',
+                  borderRadius: '10px',
+                  border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #d4d4d8',
+                  background: isDark ? '#2c2c2e' : '#f9f9f9',
+                  color: isDark ? '#ffffff' : '#000000',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setDeleteSessionTarget(null)}
+                style={{
+                  flex: 1, padding: '11px 16px',
+                  fontSize: 13, fontWeight: 600, borderRadius: 12,
+                  border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e4e4e7',
+                  color: isDark ? '#a1a1aa' : '#52525b',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : '#f4f4f5'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteSession}
+                disabled={isDeletingSession || deleteSessionInput !== deleteSessionTarget.name}
+                style={{
+                  flex: 1, padding: '11px 16px',
+                  fontSize: 13, fontWeight: 700, borderRadius: 12,
+                  border: 'none',
+                  color: '#ffffff',
+                  background: (isDeletingSession || deleteSessionInput !== deleteSessionTarget.name) 
+                    ? (isDark ? 'rgba(239,68,68,0.25)' : 'rgba(239,68,68,0.45)') 
+                    : 'linear-gradient(180deg, #f87171 0%, #dc2626 100%)',
+                  boxShadow: (isDeletingSession || deleteSessionInput !== deleteSessionTarget.name) ? 'none' : '0 2px 12px rgba(220,38,38,0.4)',
+                  cursor: (isDeletingSession || deleteSessionInput !== deleteSessionTarget.name) ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  transition: 'all 0.15s'
+                }}
+              >
+                <Trash2 style={{ width: 14, height: 14 }} />
+                {isDeletingSession ? 'Deleting...' : 'Delete Session'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

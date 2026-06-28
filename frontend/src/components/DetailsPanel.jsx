@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, History, Save } from 'lucide-react';
+import ReactDOM from 'react-dom';
+import { X, Check, History, Save, Trash2, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
 
 
@@ -8,7 +9,9 @@ export default function DetailsPanel({
   currentUser,
   auditIsLocked,
   onClose,
-  onUpdate
+  onUpdate,
+  isDark,
+  roleNamesMap = {}
 }) {
   const [selectedAuditor, setSelectedAuditor] = useState('');
   const [physicalCount, setPhysicalCount] = useState('');
@@ -18,6 +21,9 @@ export default function DetailsPanel({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [editItemName, setEditItemName] = useState('');
   const [editBatchNo, setEditBatchNo] = useState('');
@@ -160,6 +166,25 @@ export default function DetailsPanel({
       fetchItemHistory();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save count.');
+    }
+  };
+
+  const handleDeleteProduct = async () => {
+    setIsDeleting(true);
+    setError('');
+    try {
+      await axios.delete(`/api/items/${item.id}`);
+      setSuccessMsg('Product deleted successfully.');
+      setTimeout(() => {
+        setIsDeleting(false);
+        setShowDeleteConfirm(false);
+        onUpdate();
+        onClose();
+      }, 1000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to delete product.');
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -323,7 +348,7 @@ export default function DetailsPanel({
             <div className="space-y-1">
               <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Target Auditor Column</label>
               <div className="w-full px-3 py-2 rounded-lg text-xs font-bold select-none" style={{ background: 'var(--glass-bg-light)', border: '1px solid var(--glass-border-dim)' }}>
-                {currentUser.role}
+                {roleNamesMap[currentUser.role] || currentUser.role}
               </div>
             </div>
 
@@ -363,6 +388,124 @@ export default function DetailsPanel({
           </form>
         </div>
 
+        {/* 4. Remove Product (Admin Only) */}
+        {isAdmin && (
+          <div className="glass rounded-xl p-4 space-y-3" style={{ border: '1px solid rgba(239, 68, 68, 0.2)', background: isDark ? 'rgba(239, 68, 68, 0.03)' : 'rgba(239, 68, 68, 0.01)' }}>
+            <h3 className="text-xs font-bold text-rose-600 dark:text-rose-400">Remove Product</h3>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-normal">
+              Permanently removes this product and all associated counts and audit logs from this session.
+            </p>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={auditIsLocked}
+              className="w-full flex justify-center items-center gap-2 px-3 py-2.5 rounded-xl border font-semibold text-xs transition-colors cursor-pointer"
+              style={{
+                borderColor: 'rgba(239, 68, 68, 0.3)',
+                color: 'rgb(239, 68, 68)',
+                background: 'rgba(239, 68, 68, 0.06)'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.14)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.06)'}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Remove Product Row
+            </button>
+          </div>
+        )}
+
+        {/* Delete Confirmation Portal — renders at document.body to escape sidebar constraints */}
+        {showDeleteConfirm && ReactDOM.createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9999,
+              padding: '16px',
+              background: 'rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)'
+            }}
+            onClick={() => setShowDeleteConfirm(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '420px',
+                animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                background: isDark ? '#1c1c1e' : '#ffffff',
+                border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)',
+                boxShadow: '0 32px 80px rgba(0,0,0,0.35)',
+                borderRadius: '22px',
+                padding: '32px 28px 28px',
+                textAlign: 'center'
+              }}
+            >
+              {/* Warning Icon */}
+              <div style={{
+                width: 60, height: 60,
+                borderRadius: '18px',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 20px',
+                color: 'rgb(239, 68, 68)'
+              }}>
+                <AlertTriangle style={{ width: 28, height: 28 }} />
+              </div>
+
+              <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8, color: isDark ? '#f4f4f5' : '#111827', letterSpacing: '-0.02em' }}>
+                Remove Product Row
+              </h3>
+              <p style={{ fontSize: 12, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 24, lineHeight: 1.6 }}>
+                Are you sure you want to delete{' '}
+                <strong style={{ color: isDark ? '#f4f4f5' : '#111827' }}>{item.item_name}</strong>?
+                {' '}This is irreversible and will permanently remove all auditor counts and audit trail entries for this product.
+              </p>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  style={{
+                    flex: 1, padding: '11px 16px',
+                    fontSize: 13, fontWeight: 600, borderRadius: 12,
+                    border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e4e4e7',
+                    color: isDark ? '#a1a1aa' : '#52525b',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : '#f4f4f5'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteProduct}
+                  disabled={isDeleting}
+                  style={{
+                    flex: 1, padding: '11px 16px',
+                    fontSize: 13, fontWeight: 700, borderRadius: 12,
+                    border: 'none',
+                    color: '#ffffff',
+                    background: isDeleting ? 'rgba(239,68,68,0.5)' : 'linear-gradient(180deg, #f87171 0%, #dc2626 100%)',
+                    boxShadow: isDeleting ? 'none' : '0 2px 12px rgba(220,38,38,0.4)',
+                    cursor: isDeleting ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  <Trash2 style={{ width: 14, height: 14 }} />
+                  {isDeleting ? 'Removing...' : 'Remove Product'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
 
 
         {/* 5. Item History (Change Log) */}
@@ -377,33 +520,52 @@ export default function DetailsPanel({
             <div className="text-zinc-500 dark:text-zinc-400">No edits recorded for this item yet.</div>
           ) : (
             <div className="space-y-3 divide-y divide-zinc-100 dark:divide-zinc-800/40">
-              {history.map((log) => (
-                <div key={log.id} className="pt-2 space-y-1">
-                  <div className="flex justify-between text-[10px] text-zinc-400 dark:text-zinc-550">
-                    <span className="font-semibold text-zinc-600 dark:text-zinc-350">{log.user_name}</span>
-                    <span>{new Date(log.timestamp).toLocaleString()}</span>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400 dark:text-zinc-500">Field:</span>{' '}
-                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">{log.field_name}</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <div>
-                      <span className="text-zinc-400 dark:text-zinc-500">Old:</span>{' '}
-                      <span className="font-mono text-zinc-800 dark:text-zinc-300">{log.old_value || 'N/A'}</span>
+              {history.map((log) => {
+                const mappedUser = roleNamesMap[log.user_name] || log.user_name;
+                const formatFieldName = (field) => {
+                  if (!field) return '';
+                  const match = field.match(/^Auditor Count \(([^)]+)\)$/);
+                  if (match) {
+                    const slot = match[1];
+                    const displayName = roleNamesMap[slot] || slot;
+                    return `Auditor Count (${displayName})`;
+                  }
+                  return field;
+                };
+
+                const cleanValue = (val) => {
+                  if (!val) return '';
+                  return val.replace(/\s*\(Exp:[01]\)/ig, '');
+                };
+
+                return (
+                  <div key={log.id} className="pt-2 space-y-1">
+                    <div className="flex justify-between text-[10px] text-zinc-400 dark:text-zinc-550">
+                      <span className="font-semibold text-zinc-600 dark:text-zinc-350">{mappedUser}</span>
+                      <span>{new Date(log.timestamp).toLocaleString()}</span>
                     </div>
                     <div>
-                      <span className="text-zinc-400 dark:text-zinc-500">New:</span>{' '}
-                      <span className="font-mono text-zinc-950 dark:text-zinc-50 font-semibold">{log.new_value || 'N/A'}</span>
+                      <span className="text-zinc-400 dark:text-zinc-500">Field:</span>{' '}
+                      <span className="font-semibold text-zinc-800 dark:text-zinc-200">{formatFieldName(log.field_name)}</span>
                     </div>
+                    <div className="flex gap-2">
+                      <div>
+                        <span className="text-zinc-400 dark:text-zinc-500">Old:</span>{' '}
+                        <span className="font-mono text-zinc-800 dark:text-zinc-300">{cleanValue(log.old_value) || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-400 dark:text-zinc-500">New:</span>{' '}
+                        <span className="font-mono text-zinc-950 dark:text-zinc-50 font-semibold">{cleanValue(log.new_value) || 'N/A'}</span>
+                      </div>
+                    </div>
+                    {log.reason && (
+                      <div className="italic text-zinc-500 text-[11px] bg-zinc-50 dark:bg-zinc-900/50 p-1.5 rounded">
+                        Reason: "{log.reason}"
+                      </div>
+                    )}
                   </div>
-                  {log.reason && (
-                    <div className="italic text-zinc-500 text-[11px] bg-zinc-50 dark:bg-zinc-900/50 p-1.5 rounded">
-                      Reason: "{log.reason}"
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
