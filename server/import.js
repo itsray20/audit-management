@@ -34,17 +34,17 @@ const cleanDate = (val) => {
 
 // Column normalizer mappings
 const COLUMN_MAPPINGS = {
-  item_name: ['item name', 'name', 'item_name', 'product name', 'product'],
+  item_name: ['item name', 'name', 'item_name', 'product name', 'product', 'product_name', 'productname'],
   category: ['category', 'item category', 'dept'],
   type: ['type', 'item type', 'form'],
-  batch_no: ['batch no', 'batch', 'batch_no', 'batch number', 'lot no', 'lot'],
+  batch_no: ['batch no', 'batch', 'batch_no', 'batch number', 'lot no', 'lot', 'batch_id', 'batchid'],
   pack_size: ['pack size', 'pack_size', 'package qty', 'packsize', 'pkg qty'],
-  expiry_date: ['expiry date', 'expiry', 'exp date', 'exp_date', 'exp', 'expiry_date'],
+  expiry_date: ['expiry date', 'expiry', 'exp date', 'exp_date', 'exp', 'expiry_date', 'expiry_date', 'expirydate'],
   pack_mrp: ['pack mrp', 'pack_mrp', 'package mrp'],
-  unit_mrp: ['unit mrp', 'unit_mrp', 'mrp', 'rate mrp'],
+  unit_mrp: ['unit mrp', 'unit_mrp', 'mrp', 'rate mrp', 'retail_price', 'retailprice', 'selling rate', 'sellingrate'],
   pack_rate: ['pack rate', 'pack_rate', 'package rate', 'total purchase cost', 'pack cost'],
-  unit_purchase_rate: ['unit purchase cost', 'unit purchase rate', 'purchase rate per unit', 'unit_purchase_cost', 'purchase rate', 'unit cost', 'pr'],
-  system_qty: ['system quantity', 'system qty', 'qty', 'as per software quantity', 'stock qty', 'software qty'],
+  unit_purchase_rate: ['unit purchase cost', 'unit purchase rate', 'purchase rate per unit', 'unit_purchase_cost', 'purchase rate', 'unit cost', 'pr', 'unit_cost', 'unitcost', 'pruchase rate', 'purchaserate'],
+  system_qty: ['system quantity', 'system qty', 'qty', 'as per software quantity', 'stock qty', 'software qty', 'system_quantity', 'systemquantity', 'batch available quantity', 'batchavailablequantity'],
   location: ['location', 'rack', 'shelf'],
   store_name: ['store name', 'store_name', 'store'],
   supplier: ['supplier', 'vendor', 'vendor name', 'supplier name']
@@ -112,7 +112,7 @@ const importExcel = async (auditSessionId, filePath) => {
   const sampleRow = mainData[0];
   const headers = Object.keys(sampleRow);
   const headerMap = {};
-  const auditorCols = [];
+  let auditorCols = [];
 
   headers.forEach(h => {
     const canonical = findMappedColumn(h, COLUMN_MAPPINGS);
@@ -120,16 +120,29 @@ const importExcel = async (auditSessionId, filePath) => {
       headerMap[canonical] = h;
     } else {
       // It's a non-standard column. Check if it's an auditor count column.
-      // E.g. ending in "phy qty", "qty.1", or names like "sri", "sravani", "sanathu", "sha", "recheck", "add"
+      // E.g. ending in "phy qty", "qty.1", or names like "sri", "sravani", "sanathu", "sha", "recheck", "add", "user1", "user2", etc.
       const normH = h.toLowerCase();
       const isAuditor = normH.includes('phy') || 
                         normH.includes('count') || 
-                        ['sri', 'sravani', 'sanathu', 'sha', 'recheck', 'add', 'qty.1'].some(name => normH.includes(name));
+                        ['sri', 'sravani', 'sanathu', 'sha', 'recheck', 'add', 'qty.1', 'user1', 'user2', 'user3', 'user4', 'user5', 'admin'].some(name => normH.includes(name));
       if (isAuditor && !normH.includes('remark') && !normH.includes('exp')) {
         auditorCols.push(h);
       }
     }
   });
+
+  // If specific auditor columns exist, filter out generic physical count columns to prevent double counting
+  const hasSpecificAuditor = auditorCols.some(col => {
+    const norm = col.toLowerCase();
+    return ['sri', 'sravani', 'sanathu', 'sha', 'user', 'admin'].some(name => norm.includes(name));
+  });
+
+  if (hasSpecificAuditor) {
+    auditorCols = auditorCols.filter(col => {
+      const norm = col.toLowerCase();
+      return !norm.includes('physical') && !norm.includes('phy') && !norm.includes('total') && norm !== 'qty.1';
+    });
+  }
 
   console.log('Detected Headers mapping:', headerMap);
   console.log('Detected Auditor columns:', auditorCols);
@@ -138,6 +151,9 @@ const importExcel = async (auditSessionId, filePath) => {
 
   // Function to process rows for insertion
   const processRows = async (rows, defaultCategory = null) => {
+    const itemsToInsert = [];
+    const rowsWithCounts = [];
+
     for (const row of rows) {
       if (isSummaryRow(row, headerMap)) {
         console.log('Skipping summary row:', row);
@@ -167,22 +183,50 @@ const importExcel = async (auditSessionId, filePath) => {
         notes = defaultCategory + (notes ? ': ' + notes : '');
       }
 
-      // Insert item
-      const { data: insertResult, error: insertErr } = await supabase
-        .from('items')
-        .insert([{
-          audit_session_id: parseInt(auditSessionId),
-          item_name: itemName, category, type, batch_no: batchNo, pack_size: packSize,
-          expiry_date: expiryDate, pack_mrp: packMrp, unit_mrp: unitMrp,
-          pack_rate: packRate, unit_purchase_rate: unitPurchaseRate, system_qty: systemQty,
-          location, store_name: storeName, supplier, notes
-        }])
-        .select('id')
-        .single();
-      if (insertErr) throw insertErr;
+      itemsToInsert.push({
+        audit_session_id: parseInt(auditSessionId),
+        item_name: itemName, category, type, batch_no: batchNo, pack_size: packSize,
+        expiry_date: expiryDate, pack_mrp: packMrp, unit_mrp: unitMrp,
+        pack_rate: packRate, unit_purchase_rate: unitPurchaseRate, system_qty: systemQty,
+        location, store_name: storeName, supplier, notes
+      });
 
-      const itemId = insertResult.id;
-      importedCount++;
+      rowsWithCounts.push(row);
+    }
+
+    if (itemsToInsert.length === 0) return;
+
+    // Batch insert items in chunks to avoid payload limits
+    const insertedItems = [];
+    const chunkSize = 150;
+    for (let i = 0; i < itemsToInsert.length; i += chunkSize) {
+      const chunk = itemsToInsert.slice(i, i + chunkSize);
+      const { data: chunkResult, error: insertErr } = await supabase
+        .from('items')
+        .insert(chunk)
+        .select('id, item_name, batch_no');
+      if (insertErr) throw insertErr;
+      insertedItems.push(...chunkResult);
+    }
+
+    // Map item_name + '|' + batch_no to list of generated ids (to handle duplicates)
+    const itemMap = {};
+    insertedItems.forEach(item => {
+      const key = `${item.item_name.trim()}|${item.batch_no.trim()}`;
+      if (!itemMap[key]) itemMap[key] = [];
+      itemMap[key].push(item.id);
+    });
+
+    // Gather all auditor counts to insert in batch
+    const countsToInsert = [];
+    for (const row of rowsWithCounts) {
+      const itemName = cleanString(row[headerMap.item_name || 'Name']);
+      const batchNo = cleanString(row[headerMap.batch_no || 'Batch No'] || row['Batch'] || 'UNKNOWN');
+      const key = `${itemName.trim()}|${batchNo.trim()}`;
+      
+      const idsList = itemMap[key];
+      if (!idsList || idsList.length === 0) continue;
+      const itemId = idsList.shift(); // take matched ID in order
 
       // Insert any auditor counts found in the row
       for (const col of auditorCols) {
@@ -191,13 +235,9 @@ const importExcel = async (auditSessionId, filePath) => {
           const physicalCount = Number(countVal);
           if (!isNaN(physicalCount)) {
             // Find corresponding expiry check / remark columns if any
-            // E.g. "Exp" or "Remarks" linked to that auditor
             let expCheck = 0;
             let remark = '';
             
-            // Check if there are corresponding Exp and Remarks columns
-            // Simple heuristic based on column name suffixes/positions
-            // In Lifespan sheet: Sri Phy Qty, Exp, Remarks, Sravani, Exp.1, Remarks.1
             const colIdx = headers.indexOf(col);
             if (colIdx !== -1) {
               const nextCol = headers[colIdx + 1];
@@ -212,17 +252,36 @@ const importExcel = async (auditSessionId, filePath) => {
 
             // Normalise auditor name
             let auditorName = col.replace(/\s*Phy\s*Qty/gi, '').trim();
-            if (auditorName === 'Qty.1') auditorName = 'Extra Count';
+            if (auditorName === 'Qty.1') {
+              auditorName = 'Extra Count';
+            } else if (/^user[1-5]$/i.test(auditorName)) {
+              auditorName = auditorName.charAt(0).toUpperCase() + auditorName.slice(1).toLowerCase();
+            } else if (/^admin$/i.test(auditorName)) {
+              auditorName = 'Admin';
+            }
 
-            await supabase.from('auditor_counts').upsert([{
+            countsToInsert.push({
               item_id: itemId, auditor_name: auditorName,
               physical_count: physicalCount, expiry_check: expCheck === 1,
               remarks: remark, updated_at: new Date().toISOString()
-            }], { onConflict: 'item_id,auditor_name' });
+            });
           }
         }
       }
     }
+
+    // Batch upsert auditor counts
+    if (countsToInsert.length > 0) {
+      for (let i = 0; i < countsToInsert.length; i += chunkSize) {
+        const chunk = countsToInsert.slice(i, i + chunkSize);
+        const { error: upsertErr } = await supabase
+          .from('auditor_counts')
+          .upsert(chunk, { onConflict: 'item_id,auditor_name' });
+        if (upsertErr) throw upsertErr;
+      }
+    }
+
+    importedCount += itemsToInsert.length;
   };
 
   // Import main inventory rows

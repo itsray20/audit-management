@@ -17,31 +17,48 @@ const rawQuery = async (query, params = []) => {
   return data;
 };
 
-// Seed default users if table is empty
 const initDb = async () => {
   console.log('Checking Supabase connection and seeding data...');
   try {
-    const { data: users, error } = await supabase.from('users').select('id').limit(1);
-    if (error) throw error;
+    const { data: existingUsers, error } = await supabase.from('users').select('username');
+    if (error) {
+      console.warn('Could not read users table:', error.message);
+      console.log('Database ready (skipped user seed check).');
+      return;
+    }
 
-    if (!users || users.length === 0) {
-      console.log('Seeding default users...');
-      const { error: seedError } = await supabase.from('users').insert([
-        { username: 'admin', name: 'System Admin', role: 'Admin' },
-        { username: 'manager', name: 'Audit Manager', role: 'Audit Manager' },
-        { username: 'sri', name: 'Sri', role: 'Auditor' },
-        { username: 'sravani', name: 'Sravani', role: 'Auditor' },
-        { username: 'sanathu', name: 'Sanathu', role: 'Auditor' },
-        { username: 'sha', name: 'Sha', role: 'Auditor' },
-        { username: 'operator', name: 'Data Entry Operator', role: 'Data Entry Operator' }
-      ]);
-      if (seedError) throw seedError;
+    const hasSrikant = existingUsers && existingUsers.some(u => u.username === 'srikant');
+
+    if (!hasSrikant) {
+      console.log('Re-seeding standard committee users...');
+      await supabase.from('users').delete().neq('id', 0);
+
+      // Supabase schema only allows roles: 'Admin' and 'Auditor'
+      // We encode: name = "DisplayName|Password|AuditorSlot"
+      // Slot is Admin/User1/User2/User3/User4/User5
+      const seedData = [
+        { username: 'srikant',   name: 'Srikant|srikant123|Admin',    role: 'Admin'   },
+        { username: 'user1',     name: 'User 1|user123|User1',         role: 'Auditor' },
+        { username: 'sathya',    name: 'Sathya|user223|User2',         role: 'Auditor' },
+        { username: 'santosh',   name: 'Santosh|user323|User3',        role: 'Auditor' },
+        { username: 'naveen',    name: 'Naveen|user423|User4',         role: 'Auditor' },
+        { username: 'shreeyash', name: 'Shreeyash|user523|User5',      role: 'Auditor' }
+      ];
+
+      const { error: seedError } = await supabase.from('users').insert(seedData);
+      if (seedError) {
+        console.warn('Seed failed:', seedError.message);
+      } else {
+        console.log('Seeded standard committee users successfully.');
+      }
+    } else {
+      console.log('Committee users already seeded.');
     }
 
     console.log('Database ready.');
   } catch (err) {
     console.error('Database init error:', err.message);
-    throw err;
+    console.log('Server continuing despite init error...');
   }
 };
 

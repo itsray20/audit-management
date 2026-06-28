@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { supabase, initDb } = require('./db');
 const { importExcel } = require('./import');
-const { generateExcelBuffer, calculateItemValues } = require('./export');
+const { generateExcelBuffer, generateWordReport, calculateItemValues } = require('./export');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,17 +23,264 @@ if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
 }
 
 // -------------------------------------------------------------
-// USER ROUTES
+// USER & AUTHENTICATION ROUTES
 // -------------------------------------------------------------
-app.get('/api/users', async (req, res) => {
+
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required.' });
+  }
   try {
-    const { data, error } = await supabase.from('users').select('*');
-    if (error) throw error;
-    res.json(data);
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username.toLowerCase().trim())
+      .single();
+
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+
+    // name field is encoded as: "DisplayName|Password|AuditorSlot"
+    // e.g. "Sathya|user223|User2" or "Srikant|srikant123|Admin"
+    const parts = (user.name || '').split('|');
+    const cleanName = parts[0] || user.username;
+    const storedPassword = parts[1] || '';
+    // The 3rd field is the auditor slot (Admin/User1..User5). Fall back to DB role.
+    const auditorSlot = parts[2] || user.role;
+
+    if (storedPassword === password) {
+      res.json({
+        id: user.id,
+        username: user.username,
+        name: cleanName,
+        role: auditorSlot  // Admin | User1 | User2 | User3 | User4 | User5
+      });
+    } else {
+      res.status(401).json({ error: 'Invalid username or password.' });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.get('/api/users/public-map', async (req, res) => {
+  const requesterRole = req.headers['x-user-role'];
+  if (!requesterRole) {
+    return res.status(401).json({ error: 'Unauthorized.' });
+  }
+  try {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('*');
+    
+    if (error) throw error;
+
+    const mapping = {};
+    (users || []).forEach(u => {
+      const parts = (u.name || '').split('|');
+      const cleanName = parts[0] || u.username;
+      const auditorSlot = parts[2] || u.role;
+      mapping[auditorSlot] = cleanName;
+    });
+
+    res.json(mapping);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/users', async (req, res) => {
+  const requesterRole = req.headers['x-user-role'];
+  if (requesterRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can manage users.' });
+  }
+  try {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('username', { ascending: true });
+    
+    if (error) throw error;
+
+    const mappedUsers = (users || []).map(u => {
+      const parts = (u.name || '').split('|');
+      const cleanName = parts[0] || u.username;
+      const auditorSlot = parts[2] || u.role;
+      return {
+        id: u.id,
+        username: u.username,
+        name: cleanName,
+        role: auditorSlot
+      };
+    });
+
+    res.json(mappedUsers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  const { username, name, password, role } = req.body;
+  const requesterRole = req.headers['x-user-role'];
+  
+  if (requesterRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can manage users.' });
+  }
+  if (!username || !name || !password || !role) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+  try {
+    const dbRole = role === 'Admin' ? 'Admin' : 'Auditor';
+    const encodedName = `${name}|${password}|${role}`;
+    
+    const { data, error } = await supabase
+      .from('users')
+      .insert([{ username: username.toLowerCase().trim(), name: encodedName, role: dbRole }])
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ id: data.id, username: data.username, name: name, role: role });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/users/:id/password', async (req, res) => {
+  const { id } = req.params;
+  const { password } = req.body;
+  const requesterRole = req.headers['x-user-role'];
+
+  if (requesterRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can change passwords.' });
+  }
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required.' });
+  }
+  try {
+    const { data: user, error: fetchErr } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (fetchErr || !user) return res.status(404).json({ error: 'User not found.' });
+
+    const parts = (user.name || '').split('|');
+    const cleanName = parts[0] || user.username;
+    const slot = parts[2] || user.role;
+    const encodedName = `${cleanName}|${password}|${slot}`;
+
+    const { error: updateErr } = await supabase
+      .from('users')
+      .update({ name: encodedName })
+      .eq('id', id);
+    if (updateErr) throw updateErr;
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { username, name, password } = req.body;
+  const requesterRole = req.headers['x-user-role'];
+
+  if (requesterRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can modify user details.' });
+  }
+
+  try {
+    const { data: user, error: fetchErr } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (fetchErr || !user) return res.status(404).json({ error: 'User not found.' });
+
+    const parts = (user.name || '').split('|');
+    const oldName = parts[0] || '';
+    const oldPassword = parts[1] || '';
+    const oldRoleSlot = parts[2] || user.role;
+
+    const newName = name !== undefined ? name : oldName;
+    const newPassword = password !== undefined && password !== '' ? password : oldPassword;
+    const encodedName = `${newName}|${newPassword}|${oldRoleSlot}`;
+
+    const updateData = { name: encodedName };
+    if (username) {
+      updateData.username = username.toLowerCase().trim();
+    }
+
+    const { error: updateErr } = await supabase
+      .from('users')
+      .update(updateData)
+      .eq('id', id);
+
+    if (updateErr) throw updateErr;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.delete('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const requesterRole = req.headers['x-user-role'];
+
+  if (requesterRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can delete users.' });
+  }
+  try {
+    const { error } = await supabase.from('users').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Middleware to enforce write locks if session is Completed and user is not Admin
+const enforceWritePermission = async (req, res, next) => {
+  const userRole = req.headers['x-user-role'];
+  
+  if (userRole === 'Admin') {
+    return next();
+  }
+
+  let sessionId = null;
+  
+  if (req.params.id) {
+    if (req.originalUrl.includes('/api/audits/')) {
+      sessionId = req.params.id;
+    } else if (req.originalUrl.includes('/api/items/')) {
+      const { data: item } = await supabase
+        .from('items')
+        .select('audit_session_id')
+        .eq('id', req.params.id)
+        .single();
+      if (item) sessionId = item.audit_session_id;
+    }
+  }
+
+  if (sessionId) {
+    const { data: session } = await supabase
+      .from('audit_sessions')
+      .select('status')
+      .eq('id', sessionId)
+      .single();
+      
+    if (session && session.status === 'Completed') {
+      return res.status(403).json({ error: 'This audit is completed. No changes can be made except by the Admin.' });
+    }
+  }
+  
+  next();
+};
 
 // -------------------------------------------------------------
 // AUDIT SESSION ROUTES
@@ -95,6 +342,10 @@ app.post('/api/audits', async (req, res) => {
 
 app.delete('/api/audits/:id', async (req, res) => {
   const { id } = req.params;
+  const userRole = req.headers['x-user-role'];
+  if (userRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can delete audit sessions.' });
+  }
   try {
     const { error } = await supabase.from('audit_sessions').delete().eq('id', id);
     if (error) throw error;
@@ -104,10 +355,36 @@ app.delete('/api/audits/:id', async (req, res) => {
   }
 });
 
+// Put route to change status (Admin Only)
+app.put('/api/audits/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const userRole = req.headers['x-user-role'];
+  
+  if (userRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can change the audit status.' });
+  }
+  if (!status || !['Active', 'Completed'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status. Must be Active or Completed.' });
+  }
+  try {
+    const { data, error } = await supabase
+      .from('audit_sessions')
+      .update({ status })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // -------------------------------------------------------------
 // EXCEL IMPORT ROUTE
 // -------------------------------------------------------------
-app.post('/api/audits/:id/import', upload.single('file'), async (req, res) => {
+app.post('/api/audits/:id/import', enforceWritePermission, upload.single('file'), async (req, res) => {
   const { id } = req.params;
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded.' });
@@ -126,7 +403,7 @@ app.post('/api/audits/:id/import', upload.single('file'), async (req, res) => {
 });
 
 // Add manual item registration (Extra Found items)
-app.post('/api/audits/:id/items', async (req, res) => {
+app.post('/api/audits/:id/items', enforceWritePermission, async (req, res) => {
   const { id } = req.params;
   const {
     item_name, batch_no, expiry_date, unit_mrp, unit_purchase_rate,
@@ -170,7 +447,7 @@ app.get('/api/audits/:id/items', async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 30;
   const search = req.query.search || '';
-  const categoryFilter = req.query.category || '';
+  const filter = req.query.filter || '';
   const supplierFilter = req.query.supplier || '';
   const locationFilter = req.query.location || '';
   const storeFilter = req.query.store || '';
@@ -211,40 +488,88 @@ app.get('/api/audits/:id/items', async (req, res) => {
       countsByItem[c.item_id].push(c);
     });
 
-    // Calculate fields + category per item
+    // Calculate fields + category + expiryStatus per item
     let processedList = itemsList.map(item => {
+      const ALLOWED_AUDITORS = ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
       const itemCounts = countsByItem[item.id] || [];
-      const auditorTotal = itemCounts.reduce((sum, c) => sum + (c.physical_count || 0), 0);
+      const auditorTotal = itemCounts.reduce((sum, c) => {
+        if (ALLOWED_AUDITORS.includes(c.auditor_name)) {
+          return sum + (c.physical_count || 0);
+        }
+        return sum;
+      }, 0);
       const hasExpiredCheck = itemCounts.some(c => c.expiry_check === true || c.expiry_check === 1);
       const totalPhysical = auditorTotal + Number(item.manual_add || 0) + Number(item.manual_recheck || 0);
-      const difference = totalPhysical - (item.system_qty || 0);
+      
+      const hasValidCount = itemCounts.some(c => ALLOWED_AUDITORS.includes(c.auditor_name));
+      const isCounted = hasValidCount || Number(item.manual_add || 0) !== 0 || Number(item.manual_recheck || 0) !== 0;
+      
+      const difference = isCounted ? (totalPhysical - (item.system_qty || 0)) : 0;
       const differenceValue = difference * (item.unit_purchase_rate || 0);
 
-      let category = 'Perfect Match';
-      let isExpired = false;
+      let category = 'Not Counted';
+      let expiryStatus = 'GOOD STOCK';
       if (item.expiry_date) {
-        if (new Date(item.expiry_date) < new Date(session.audit_date)) isExpired = true;
+        const itemDate = new Date(item.expiry_date);
+        itemDate.setHours(0,0,0,0);
+        const refDate = new Date(session.audit_date);
+        refDate.setHours(0,0,0,0);
+        
+        const ninetyDays = new Date(refDate);
+        ninetyDays.setDate(refDate.getDate() + 90);
+        
+        if (itemDate < refDate) {
+          expiryStatus = 'EXPIRED';
+        } else if (itemDate <= ninetyDays) {
+          expiryStatus = 'NEAR EXPIRY';
+        } else {
+          expiryStatus = 'GOOD STOCK';
+        }
       }
-      if (hasExpiredCheck) isExpired = true;
+      if (hasExpiredCheck) expiryStatus = 'EXPIRED';
 
-      if (isExpired && totalPhysical > 0) {
-        category = 'Expired Stock';
-      } else if (item.system_qty === 0 && totalPhysical > 0) {
-        category = 'Extra Found';
-      } else if (item.notes && item.notes.startsWith('OT')) {
-        category = 'Other';
-      } else if (difference > 0) {
-        category = 'Excess';
-      } else if (difference < 0) {
-        category = 'Shortage';
+      if (isCounted) {
+        if (expiryStatus === 'EXPIRED' && totalPhysical > 0) {
+          category = 'Expired Stock';
+        } else if (item.system_qty === 0 && totalPhysical > 0) {
+          category = 'Extra Found';
+        } else if (item.notes && item.notes.startsWith('OT')) {
+          category = 'Other';
+        } else if (difference > 0) {
+          category = 'Excess';
+        } else if (difference < 0) {
+          category = 'Shortage';
+        } else {
+          category = 'Perfect Match';
+        }
       }
 
-      return { ...item, totalPhysical, difference, differenceValue, category, counts: itemCounts };
+      return { ...item, totalPhysical, difference, differenceValue, category, expiryStatus, auditor_counts: itemCounts };
     });
 
-    // Apply category filter in JS
-    if (categoryFilter) {
-      processedList = processedList.filter(item => item.category === categoryFilter);
+    // Apply single unified filter in JS
+    if (filter) {
+      if (filter === 'EXPIRED') {
+        processedList = processedList.filter(item => item.expiryStatus === 'EXPIRED');
+      } else if (filter === 'NEAR EXPIRY') {
+        processedList = processedList.filter(item => item.expiryStatus === 'NEAR EXPIRY');
+      } else if (filter === 'GOOD STOCK') {
+        processedList = processedList.filter(item => item.expiryStatus === 'GOOD STOCK');
+      } else if (filter === 'Shortage') {
+        // Only verified shortages — items that were actually counted and physical < system
+        processedList = processedList.filter(item => item.category === 'Shortage');
+      } else if (filter === 'Excess') {
+        processedList = processedList.filter(item => item.category === 'Excess');
+      } else if (filter === 'Perfect Match') {
+        processedList = processedList.filter(item => item.category === 'Perfect Match');
+      } else if (filter === 'Extra Found') {
+        processedList = processedList.filter(item => item.category === 'Extra Found');
+      } else if (filter === 'Expired Stock') {
+        processedList = processedList.filter(item => item.category === 'Expired Stock');
+      } else if (filter === 'Not Counted') {
+        // Items nobody has submitted a count for yet
+        processedList = processedList.filter(item => item.auditor_counts.length === 0);
+      }
     }
 
     const totalCount = processedList.length;
@@ -273,19 +598,27 @@ app.get('/api/audits/:id/items', async (req, res) => {
   }
 });
 
-// Update Auditor Count
-app.post('/api/items/:id/counts', async (req, res) => {
+// Update Auditor Count (supports both POST /api/items/:id/counts and PUT /api/items/:id/count)
+const handleCountUpdate = async (req, res) => {
   const { id } = req.params;
   const { auditor_name, physical_count, expiry_check, remarks } = req.body;
+  const userRole = req.headers['x-user-role'];
 
-  if (!auditor_name || physical_count === undefined) {
-    return res.status(400).json({ error: 'Auditor name and physical count are required.' });
+  if (!auditor_name) {
+    return res.status(400).json({ error: 'Auditor name is required.' });
+  }
+
+  // Column-level permission check: Non-admins can only write to their own column
+  if (userRole !== 'Admin' && auditor_name !== userRole) {
+    return res.status(403).json({ error: `You are only authorized to edit the '${userRole}' column.` });
   }
 
   try {
     const { data: item, error: iErr } = await supabase.from('items').select('*').eq('id', id).single();
     if (iErr || !item) return res.status(404).json({ error: 'Item not found' });
-    if (item.is_locked) {
+    
+    // Only Admin can bypass row lock
+    if (item.is_locked && userRole !== 'Admin') {
       return res.status(403).json({ error: 'This row is locked and cannot be edited.' });
     }
 
@@ -297,86 +630,127 @@ app.post('/api/items/:id/counts', async (req, res) => {
       .eq('auditor_name', auditor_name)
       .single();
 
-    // Upsert count
-    const { error: upsertErr } = await supabase
-      .from('auditor_counts')
-      .upsert([{
-        item_id: parseInt(id),
-        auditor_name,
-        physical_count: parseInt(physical_count),
-        expiry_check: expiry_check ? true : false,
-        remarks: remarks || '',
-        updated_at: new Date().toISOString()
-      }], { onConflict: 'item_id,auditor_name' });
-    if (upsertErr) throw upsertErr;
+    const isDelete = physical_count === null || physical_count === undefined || physical_count === '';
 
-    // Log trail if changed
-    const oldVal = oldCount ? `${oldCount.physical_count} (Exp:${oldCount.expiry_check ? 1 : 0})` : 'None';
-    const newVal = `${physical_count} (Exp:${expiry_check ? 1 : 0})`;
-    if (oldVal !== newVal) {
-      await supabase.from('audit_trail').insert([{
-        item_id: parseInt(id),
-        user_name: auditor_name,
-        timestamp: new Date().toISOString(),
-        field_name: `Auditor Count (${auditor_name})`,
-        old_value: oldVal,
-        new_value: newVal,
-        reason: 'Count update'
-      }]);
+    if (isDelete) {
+      // Delete count
+      const { error: delErr } = await supabase
+        .from('auditor_counts')
+        .delete()
+        .eq('item_id', parseInt(id))
+        .eq('auditor_name', auditor_name);
+      if (delErr) throw delErr;
+
+      // Log trail if changed
+      const oldVal = oldCount ? `${oldCount.physical_count} (Exp:${oldCount.expiry_check ? 1 : 0})` : 'None';
+      const newVal = 'None';
+      if (oldVal !== newVal) {
+        await supabase.from('audit_trail').insert([{
+          item_id: parseInt(id),
+          user_name: auditor_name,
+          timestamp: new Date().toISOString(),
+          field_name: `Auditor Count (${auditor_name})`,
+          old_value: oldVal,
+          new_value: newVal,
+          reason: remarks || 'Count cleared'
+        }]);
+      }
+    } else {
+      // Upsert count
+      const { error: upsertErr } = await supabase
+        .from('auditor_counts')
+        .upsert([{
+          item_id: parseInt(id),
+          auditor_name,
+          physical_count: parseInt(physical_count),
+          expiry_check: expiry_check ? true : false,
+          remarks: remarks || '',
+          updated_at: new Date().toISOString()
+        }], { onConflict: 'item_id,auditor_name' });
+      if (upsertErr) throw upsertErr;
+
+      // Log trail if changed
+      const oldVal = oldCount ? `${oldCount.physical_count} (Exp:${oldCount.expiry_check ? 1 : 0})` : 'None';
+      const newVal = `${physical_count} (Exp:${expiry_check ? 1 : 0})`;
+      if (oldVal !== newVal) {
+        await supabase.from('audit_trail').insert([{
+          item_id: parseInt(id),
+          user_name: auditor_name,
+          timestamp: new Date().toISOString(),
+          field_name: `Auditor Count (${auditor_name})`,
+          old_value: oldVal,
+          new_value: newVal,
+          reason: remarks || 'Count update'
+        }]);
+      }
     }
 
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
 
-// Update Item Adjustments / Manual Inputs
-app.put('/api/items/:id', async (req, res) => {
+app.post('/api/items/:id/counts', enforceWritePermission, handleCountUpdate);
+app.put('/api/items/:id/count', enforceWritePermission, handleCountUpdate);
+
+// Update Item Adjustments / Static / Dynamic Inputs (Admin Only)
+app.put('/api/items/:id', enforceWritePermission, async (req, res) => {
   const { id } = req.params;
-  const { manual_add, manual_recheck, notes, user_name, reason } = req.body;
+  const userRole = req.headers['x-user-role'];
+
+  if (userRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can make adjustments or edit static item fields.' });
+  }
+
+  const {
+    manual_add, manual_recheck, notes, user_name, reason,
+    item_name, batch_no, expiry_date, unit_purchase_rate, unit_mrp, system_qty,
+    location, store_name, supplier
+  } = req.body;
 
   try {
     const { data: item, error: iErr } = await supabase.from('items').select('*').eq('id', id).single();
     if (iErr || !item) return res.status(404).json({ error: 'Item not found' });
-    if (item.is_locked) {
-      return res.status(403).json({ error: 'This row is locked. Only Audit Managers can make edits.' });
-    }
 
+    const updates = {};
     const trailEntries = [];
+    const timestamp = new Date().toISOString();
+    const editor = user_name || 'Admin';
+    const changeReason = reason || 'Admin edit';
 
-    if (manual_add !== undefined && Number(manual_add) !== Number(item.manual_add)) {
-      await supabase.from('items').update({ manual_add: Number(manual_add) }).eq('id', id);
-      trailEntries.push({
-        item_id: parseInt(id), user_name: user_name || 'System',
-        timestamp: new Date().toISOString(), field_name: 'Manual Add',
-        old_value: String(item.manual_add), new_value: String(manual_add),
-        reason: reason || 'Adjustment'
-      });
-    }
+    const checkAndUpdate = (field, newVal, label) => {
+      if (newVal !== undefined && String(newVal) !== String(item[field] !== null && item[field] !== undefined ? item[field] : '')) {
+        updates[field] = newVal;
+        trailEntries.push({
+          item_id: parseInt(id), user_name: editor,
+          timestamp, field_name: label,
+          old_value: String(item[field] || ''), new_value: String(newVal),
+          reason: changeReason
+        });
+      }
+    };
 
-    if (manual_recheck !== undefined && Number(manual_recheck) !== Number(item.manual_recheck)) {
-      await supabase.from('items').update({ manual_recheck: Number(manual_recheck) }).eq('id', id);
-      trailEntries.push({
-        item_id: parseInt(id), user_name: user_name || 'System',
-        timestamp: new Date().toISOString(), field_name: 'Manual Recheck',
-        old_value: String(item.manual_recheck), new_value: String(manual_recheck),
-        reason: reason || 'Adjustment'
-      });
-    }
+    checkAndUpdate('manual_add', manual_add, 'Manual Add');
+    checkAndUpdate('manual_recheck', manual_recheck, 'Manual Recheck');
+    checkAndUpdate('notes', notes, 'Notes');
+    checkAndUpdate('item_name', item_name, 'Product Name');
+    checkAndUpdate('batch_no', batch_no, 'Batch ID');
+    checkAndUpdate('expiry_date', expiry_date, 'Expiry Date');
+    checkAndUpdate('unit_purchase_rate', unit_purchase_rate, 'Unit Cost');
+    checkAndUpdate('unit_mrp', unit_mrp, 'Retail Price');
+    checkAndUpdate('system_qty', system_qty, 'System Quantity');
+    checkAndUpdate('location', location, 'Location');
+    checkAndUpdate('store_name', store_name, 'Store Name');
+    checkAndUpdate('supplier', supplier, 'Supplier');
 
-    if (notes !== undefined && notes !== item.notes) {
-      await supabase.from('items').update({ notes }).eq('id', id);
-      trailEntries.push({
-        item_id: parseInt(id), user_name: user_name || 'System',
-        timestamp: new Date().toISOString(), field_name: 'Notes',
-        old_value: item.notes || '', new_value: notes,
-        reason: reason || 'Notes update'
-      });
-    }
+    if (Object.keys(updates).length > 0) {
+      const { error: updateErr } = await supabase.from('items').update(updates).eq('id', id);
+      if (updateErr) throw updateErr;
 
-    if (trailEntries.length > 0) {
-      await supabase.from('audit_trail').insert(trailEntries);
+      if (trailEntries.length > 0) {
+        await supabase.from('audit_trail').insert(trailEntries);
+      }
     }
 
     res.json({ success: true });
@@ -385,10 +759,15 @@ app.put('/api/items/:id', async (req, res) => {
   }
 });
 
-// Lock/Unlock Item Row
-app.post('/api/items/:id/lock', async (req, res) => {
+// Lock/Unlock Item Row (Admin Only)
+app.post('/api/items/:id/lock', enforceWritePermission, async (req, res) => {
   const { id } = req.params;
   const { is_locked, user_name, reason } = req.body;
+  const userRole = req.headers['x-user-role'];
+
+  if (userRole !== 'Admin') {
+    return res.status(403).json({ error: 'Only administrators can lock or unlock rows.' });
+  }
 
   if (is_locked === undefined || !user_name || !reason) {
     return res.status(400).json({ error: 'is_locked, user_name, and reason are required.' });
@@ -467,15 +846,62 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
     });
 
     const totalItems = processedItems.length;
-    const itemsAudited = processedItems.filter(item => item.totalPhysical > 0).length;
+    // If the session is Completed, it's 100% by definition (admin has signed off)
+    // Otherwise count items that have at least one valid auditor count record
+    const ALLOWED_AUDITORS = ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
+    const activeCounts = (allCounts || []).filter(c => ALLOWED_AUDITORS.includes(c.auditor_name));
+    const auditedItemIds = new Set(activeCounts.map(c => c.item_id));
+    const itemsAudited = session.status === 'Completed'
+      ? totalItems
+      : processedItems.filter(item => auditedItemIds.has(item.id) || Number(item.manual_add || 0) !== 0 || Number(item.manual_recheck || 0) !== 0).length;
     const totalStockValue = processedItems.reduce((sum, item) => sum + ((item.system_qty || 0) * (item.unit_purchase_rate || 0)), 0);
     const totalExcessValue = processedItems.filter(i => i.category === 'Excess').reduce((sum, i) => sum + i.differenceValue, 0);
     const totalShortageValue = processedItems.filter(i => i.category === 'Shortage').reduce((sum, i) => sum + i.differenceValue, 0);
     const extraFoundValue = processedItems.filter(i => i.category === 'Extra Found').reduce((sum, i) => sum + (i.totalPhysical * (i.unit_purchase_rate || 0)), 0);
     const expiredValue = processedItems.filter(i => i.category === 'Expired Stock').reduce((sum, i) => sum + (i.totalPhysical * (i.unit_purchase_rate || 0)), 0);
     const otValue = processedItems.filter(i => i.category === 'Other').reduce((sum, i) => sum + i.differenceValue, 0);
-    const grossShortage = totalExcessValue + totalShortageValue;
-    const netShortage = grossShortage + extraFoundValue;
+    
+    // Correct formulas:
+    const grossShortage = totalShortageValue; // negative shortage sum
+    const netShortage = grossShortage + extraFoundValue; // shortage offset by extra found
+    const netAuditDifference = totalExcessValue + totalShortageValue + extraFoundValue + otValue; // overall audit variance
+
+    // Expiry breakdown
+    let expCount = 0, expVal = 0;
+    let nearCount = 0, nearVal = 0;
+    let goodCount = 0, goodVal = 0;
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const ninetyDays = new Date(today);
+    ninetyDays.setDate(today.getDate() + 90);
+
+    processedItems.forEach(item => {
+      const val = (item.totalPhysical || item.system_qty || 0) * (item.unit_purchase_rate || 0);
+      if (!item.expiry_date) {
+        goodCount++;
+        goodVal += val;
+        return;
+      }
+      const expDate = new Date(item.expiry_date);
+      expDate.setHours(0,0,0,0);
+      if (expDate < today) {
+        expCount++;
+        expVal += val;
+      } else if (expDate <= ninetyDays) {
+        nearCount++;
+        nearVal += val;
+      } else {
+        goodCount++;
+        goodVal += val;
+      }
+    });
+
+    const expiryBreakdown = {
+      expired: { count: expCount, value: expVal },
+      nearExpiry: { count: nearCount, value: nearVal },
+      goodStock: { count: goodCount, value: goodVal }
+    };
 
     const categoryBreakdown = {
       'Excess': processedItems.filter(i => i.category === 'Excess').length,
@@ -495,11 +921,44 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
       supplierBreakdown[sup] = (supplierBreakdown[sup] || 0) + i.differenceValue;
     });
 
+    // Top shortages (items with negative differenceValue) sorted by absolute loss size
+    const topShortages = [...processedItems]
+      .filter(i => i.differenceValue < 0)
+      .sort((a, b) => a.differenceValue - b.differenceValue) // most negative first
+      .slice(0, 5)
+      .map(i => ({
+        item_name: i.item_name,
+        batch_no: i.batch_no,
+        expiry_date: i.expiry_date,
+        system_qty: i.system_qty,
+        totalPhysical: i.totalPhysical,
+        difference: i.difference,
+        unit_purchase_rate: i.unit_purchase_rate,
+        differenceValue: i.differenceValue
+      }));
+
+    // Top excesses (items with positive differenceValue) sorted by surplus size
+    const topExcesses = [...processedItems]
+      .filter(i => i.differenceValue > 0)
+      .sort((a, b) => b.differenceValue - a.differenceValue) // most positive first
+      .slice(0, 5)
+      .map(i => ({
+        item_name: i.item_name,
+        batch_no: i.batch_no,
+        expiry_date: i.expiry_date,
+        system_qty: i.system_qty,
+        totalPhysical: i.totalPhysical,
+        difference: i.difference,
+        unit_purchase_rate: i.unit_purchase_rate,
+        differenceValue: i.differenceValue
+      }));
+
     res.json({
       totalItems, itemsAudited, totalStockValue,
       totalExcessValue, totalShortageValue, extraFoundValue,
-      expiredValue, otValue, grossShortage, netShortage,
-      categoryBreakdown, locationBreakdown, supplierBreakdown
+      expiredValue, otValue, grossShortage, netShortage, netAuditDifference,
+      categoryBreakdown, locationBreakdown, supplierBreakdown, expiryBreakdown,
+      topShortages, topExcesses
     });
 
   } catch (err) {
@@ -516,6 +975,18 @@ app.get('/api/audits/:id/export', async (req, res) => {
     const buffer = await generateExcelBuffer(id);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=Audit_Report_Session_${id}.xlsx`);
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/audits/:id/export/word', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const buffer = await generateWordReport(id);
+    res.setHeader('Content-Type', 'application/msword');
+    res.setHeader('Content-Disposition', `attachment; filename=Audit_Analysis_Report_${id}.doc`);
     res.send(buffer);
   } catch (err) {
     res.status(500).json({ error: err.message });

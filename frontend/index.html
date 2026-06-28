@@ -3,9 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Stable mobile viewport: viewport-fit=cover = edge-to-edge on notched iPhones -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Centralized collaborative pharmacy stock audit management system for stores, locations, and vendors." />
-    <title>Pharmacy Stock Audit System</title>
+    <title>Auditing</title>
   </head>
   <body>
     <div id="root"></div>

@@ -1,35 +1,673 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 @import "tailwindcss";
+
+@import url('https://fonts.cdnfonts.com/css/sf-pro-display');
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Basic UI resets */
+/* ══════════════════════════════════════════════════════
+   GLASS DESIGN SYSTEM — TOKENS
+══════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Light Mode: Apple systemGroupedBackground ── */
+  --bg-base: #f2f2f7;
+  --bg-mesh: linear-gradient(180deg, #f5f5f7 0%, #ebebf0 100%);
+
+  /* ── Glass surfaces: Pure white elevated cards ── */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-heavy: rgba(255, 255, 255, 0.95);
+  --glass-bg-light: rgba(255, 255, 255, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.90);
+  --glass-border-dim: rgba(0, 0, 0, 0.06);
+  --glass-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 1) inset,
+    0 2px 1px 0 rgba(0, 0, 0, 0.03),
+    0 6px 20px 0 rgba(0, 0, 0, 0.055),
+    0 1px 4px 0 rgba(0, 0, 0, 0.04);
+  --glass-shadow-lg:
+    0 1px 0 0 rgba(255, 255, 255, 1) inset,
+    0 4px 2px 0 rgba(0, 0, 0, 0.02),
+    0 16px 48px 0 rgba(0, 0, 0, 0.10),
+    0 2px 8px 0 rgba(0, 0, 0, 0.05);
+  --glass-blur: blur(24px) saturate(1.8);
+
+  /* ── Typography ── */
+  --text-primary: #1d1d1f;
+  --text-secondary: #3c3c3e;
+  --text-tertiary: #6e6e73;
+
+  /* ── Accent ── */
+  --accent: #007AFF;
+  --accent-light: rgba(0, 122, 255, 0.09);
+
+  /* ── Danger ── */
+  --danger: #FF3B30;
+  --danger-light: rgba(255, 59, 48, 0.07);
+
+  /* ── Card solid white for prominent areas ── */
+  --card-solid: #ffffff;
+  --card-border: rgba(0, 0, 0, 0.07);
+}
+
+.dark {
+  /* ── Dark Mode: Apple SF layered system ── */
+  --bg-base: #000000;
+  --bg-mesh: linear-gradient(180deg, #111113 0%, #000000 100%);
+
+  /* ── Glass: Apple's translucent dark panel system ── */
+  --glass-bg: rgba(36, 36, 38, 0.90);
+  --glass-bg-heavy: rgba(50, 50, 52, 0.97);
+  --glass-bg-light: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-border-dim: rgba(255, 255, 255, 0.07);
+  --glass-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.07) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.06),
+    0 4px 16px 0 rgba(0, 0, 0, 0.45),
+    0 1px 4px 0 rgba(0, 0, 0, 0.25);
+  --glass-shadow-lg:
+    0 1px 0 0 rgba(255, 255, 255, 0.09) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.07),
+    0 20px 60px 0 rgba(0, 0, 0, 0.60),
+    0 4px 16px 0 rgba(0, 0, 0, 0.30);
+  --glass-blur: blur(32px) saturate(1.6) brightness(1.05);
+
+  /* ── Typography: Apple dark mode brightness ladder ── */
+  --text-primary: #f5f5f7;
+  --text-secondary: #d1d1d6;
+  --text-tertiary: #98989f;
+
+  --accent: #0A84FF;
+  --accent-light: rgba(10, 132, 255, 0.16);
+
+  --danger: #FF453A;
+  --danger-light: rgba(255, 69, 58, 0.13);
+
+  --card-solid: #242426;
+  --card-border: rgba(255, 255, 255, 0.10);
+}
+
+/* ══════════════════════════════════════════════════════
+   BODY & GLOBAL
+══════════════════════════════════════════════════════ */
+html {
+  /* Prevent horizontal shift/wobble from any overflow */
+  overflow-x: hidden;
+  /* iOS momentum scrolling */
+  -webkit-overflow-scrolling: touch;
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+}
+
 body {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  font-family: 'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-mesh);
+  background-color: var(--bg-base);
+  /* NOTE: background-attachment:fixed is intentionally removed — it causes
+     severe jitter/wobble on iOS Safari and Android Chrome during scroll */
+  color: var(--text-primary);
+  overflow-x: hidden;
+  /* Kill grey tap flash on all tappable elements */
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Custom Scrollbar */
+/* ══════════════════════════════════════════════════════
+   GLASS UTILITY CLASSES
+══════════════════════════════════════════════════════ */
+
+.glass {
+  background: var(--glass-bg) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* Pure white card (no transparency) — for metric tiles */
+.glass-solid {
+  background: var(--card-solid) !important;
+  border: 1px solid var(--card-border) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+.glass-heavy {
+  background: var(--glass-bg-heavy) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+.glass-lg {
+  background: var(--glass-bg) !important;
+  backdrop-filter: var(--glass-blur) !important;
+  -webkit-backdrop-filter: var(--glass-blur) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--glass-shadow-lg) !important;
+}
+
+/* ══════════════════════════════════════════════════════
+   TYPOGRAPHY
+══════════════════════════════════════════════════════ */
+.font-mono {
+  font-family: "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+}
+
+/* ══════════════════════════════════════════════════════
+   SCROLLBAR
+══════════════════════════════════════════════════════ */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 4px;
-}
-
 ::-webkit-scrollbar-thumb {
-  background: #e4e4e7;
-  border-radius: 4px;
+  background: rgba(100, 100, 120, 0.22);
+  border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1aa;
+  background: rgba(100, 100, 120, 0.40);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ══════════════════════════════════════════════════════
+   GLASS INPUT — shared style
+══════════════════════════════════════════════════════ */
+.glass-input {
+  background: rgba(255, 255, 255, 0.70) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(0, 0, 0, 0.09) !important;
+  color: var(--text-primary) !important;
+  border-radius: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) inset;
+}
+
+.dark .glass-input {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) inset;
+}
+
+.glass-input:focus {
+  outline: none !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
+}
+
+/* ══════════════════════════════════════════════════════
+   GLASS BUTTON — primary
+══════════════════════════════════════════════════════ */
+.btn-glass-primary {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: filter 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 2px 12px rgba(0, 122, 255, 0.35);
+}
+
+.btn-glass-primary:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(0, 122, 255, 0.45);
+}
+
+.btn-glass-primary:active {
+  transform: translateY(0);
+  filter: brightness(0.96);
+}
+
+/* ══════════════════════════════════════════════════════
+   ANIMATED GRADIENT BORDER — Add Data button
+══════════════════════════════════════════════════════ */
+@property --ba {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes spin-border {
+  to {
+    --ba: 360deg;
+  }
+}
+
+.btn-add-data {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1;
+  transition: opacity 0.15s, transform 0.1s;
+  background:
+    linear-gradient(var(--glass-bg-heavy, #fff), var(--glass-bg-heavy, #fff)) padding-box,
+    conic-gradient(from var(--ba), #a855f7, #6366f1, #38bdf8, #34d399, #f472b6, #a855f7) border-box;
+  animation: spin-border 3s linear infinite;
+  color: #4f46e5;
+}
+
+.dark .btn-add-data {
+  background:
+    linear-gradient(rgba(28, 28, 30, 0.97), rgba(28, 28, 30, 0.97)) padding-box,
+    conic-gradient(from var(--ba), #a855f7, #6366f1, #38bdf8, #34d399, #f472b6, #a855f7) border-box;
+  color: #a5b4fc;
+}
+
+.btn-add-data:hover {
+  opacity: 0.85;
+  transform: translateY(-0.5px);
+}
+
+/* ══════════════════════════════════════════════════════
+   INTERACTIVE CURSOR
+══════════════════════════════════════════════════════ */
+button,
+a,
+select,
+input[type="submit"],
+input[type="button"],
+input[type="checkbox"],
+input[type="radio"],
+label,
+.cursor-pointer,
+tr.group {
+  cursor: pointer !important;
+  /* Removes 300ms tap delay on mobile — makes the UI feel instant & solid */
+  touch-action: manipulation;
+  /* Suppress grey tap flash on iOS */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ══════════════════════════════════════════════════════
+   GLASS CARD — hover lift
+══════════════════════════════════════════════════════ */
+.glass-card-hover {
+  transition: transform 0.20s ease, box-shadow 0.20s ease;
+}
+
+/* Only lift on real pointer/mouse hover — prevents jitter on mobile touch */
+@media (hover: hover) {
+  .glass-card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--glass-shadow-lg) !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   HIGHLIGHT SHIMMER on active tab
+══════════════════════════════════════════════════════ */
+@keyframes tab-shine {
+  0% {
+    background-position: -200% center;
+  }
+
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.tab-active-glow {
+  position: relative;
+  overflow: hidden;
+}
+
+.tab-active-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.45) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: tab-shine 2.5s ease infinite;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* ══════════════════════════════════════════════════════
+   MODAL BACKDROP
+══════════════════════════════════════════════════════ */
+.glass-backdrop {
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(28px) saturate(1.6);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+}
+
+.dark .glass-backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* ══════════════════════════════════════════════════════
+   TABLE ROW HOVER
+══════════════════════════════════════════════════════ */
+.glass-row-hover {
+  transition: background 0.12s;
+}
+
+.glass-row-hover:hover {
+  background: rgba(0, 122, 255, 0.04) !important;
+}
+
+.dark .glass-row-hover:hover {
+  background: rgba(10, 132, 255, 0.07) !important;
+}
+
+/* ══════════════════════════════════════════════════════
+   CUSTOM GLASS DROPDOWN
+══════════════════════════════════════════════════════ */
+.glass-dropdown-panel {
+  background: var(--glass-bg-heavy);
+  backdrop-filter: blur(32px) saturate(2.2);
+  -webkit-backdrop-filter: blur(32px) saturate(2.2);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 16px 48px rgba(0, 0, 0, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  overflow: hidden;
+  animation: dropdown-in 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: top center;
+  z-index: 9999;
+}
+
+.dark .glass-dropdown-panel {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 16px 48px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.30);
+}
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.glass-dropdown-item {
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--glass-border-dim);
+}
+
+.glass-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.glass-dropdown-item:hover {
+  background: rgba(0, 122, 255, 0.08);
+}
+
+.dark .glass-dropdown-item:hover {
+  background: rgba(10, 132, 255, 0.12);
+}
+
+.glass-dropdown-item.selected {
+  background: rgba(0, 122, 255, 0.10);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.glass-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border: 1px solid var(--glass-border-dim);
+  background: var(--glass-bg-light);
+  backdrop-filter: blur(12px);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.glass-dropdown-trigger:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.10);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.dark .glass-dropdown-trigger:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.glass-dropdown-trigger.open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+}
+
+/* ══════════════════════════════════════════════════════
+   EDIT USER MODAL — glass version
+══════════════════════════════════════════════════════ */
+.glass-modal-field {
+  display: flex;
+  align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--glass-border-dim);
+  gap: 12px;
+}
+
+.glass-modal-field:last-child {
+  border-bottom: none;
+}
+
+.glass-modal-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.glass-modal-field input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-align: right;
+  caret-color: var(--accent);
+  font-family: inherit;
+}
+
+.glass-modal-field input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* ══════════════════════════════════════════════════════
+   METRIC CARD — Apple-style number display  
+══════════════════════════════════════════════════════ */
+.metric-card {
+  background: var(--card-solid);
+  border: 1px solid var(--card-border);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 2px 12px rgba(0, 0, 0, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.03);
+  border-radius: 18px;
+  /* Only animate on pointer devices (hover-capable), not touch screens */
+  transition: transform 0.20s ease, box-shadow 0.20s ease;
+}
+
+@media (hover: hover) {
+  .metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 1) inset,
+      0 8px 32px rgba(0, 0, 0, 0.09),
+      0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+}
+
+.dark .metric-card {
+  background: #242426;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 4px 20px rgba(0, 0, 0, 0.50),
+    0 1px 4px rgba(0, 0, 0, 0.30);
+}
+
+@media (hover: hover) {
+  .dark .metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.10) inset,
+      0 12px 40px rgba(0, 0, 0, 0.60),
+      0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   SECTION / PANEL CARD
+══════════════════════════════════════════════════════ */
+.panel-card {
+  background: var(--card-solid);
+  border: 1px solid var(--card-border);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 2px 16px rgba(0, 0, 0, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.03);
+  border-radius: 20px;
+}
+
+.dark .panel-card {
+  background: #1e1e20;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.07) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.05),
+    0 4px 24px rgba(0, 0, 0, 0.50),
+    0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* ══════════════════════════════════════════════════════
+   FADE-IN on mount
+══════════════════════════════════════════════════════ */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out both;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.38s cubic-bezier(0.32, 0.94, 0.60, 1) both;
+  /* Use GPU composited layer to prevent layout wobble during animation */
+  will-change: transform;
+}
+
+/* ══════════════════════════════════════════════════════
+   MOBILE STABILITY — Scroll containers
+══════════════════════════════════════════════════════ */
+/* iOS-native momentum scroll on any overflow container */
+.overflow-x-auto,
+.overflow-y-auto,
+.overflow-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent any single overflowing child from wobbling the entire page */
+* {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Allow images and tables to overflow their semantic max gracefully */
+img,
+table,
+pre,
+code {
+  max-width: 100%;
+}
+
+/* Hide scrollbars for swipeable panels on touch devices */
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
 }
