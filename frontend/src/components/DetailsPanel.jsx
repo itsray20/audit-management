@@ -387,6 +387,7 @@ export default function DetailsPanel({
                       disabled={auditIsLocked}
                       placeholder="Select Auditor"
                       className="w-full"
+                      fullWidth={true}
                       options={auditMembers.filter(m => !m.is_virtual).map(m => {
                         const uid = String(m.user_id);
                         return {

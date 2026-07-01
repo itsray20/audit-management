@@ -14,6 +14,7 @@ export default function GlassSelect({
   placeholder = 'Select…',
   className = '',
   compact = false,
+  fullWidth = false,
 }) {
   const [open, setOpen] = useState(false);
   const [panelStyle, setPanelStyle] = useState({});
@@ -78,7 +79,7 @@ export default function GlassSelect({
   const label = selected?.label || placeholder;
 
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    <div style={{ position: 'relative', display: fullWidth ? 'block' : 'inline-block', width: fullWidth ? '100%' : 'auto' }}>
       {/* ─── Trigger ─────────────────────────────── */}
       <div
         ref={triggerRef}
