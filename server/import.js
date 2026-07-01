@@ -164,6 +164,14 @@ const importExcel = async (auditSessionId, filePath) => {
     const itemsToInsert = [];
     const rowsWithCounts = [];
 
+    // Fetch assigned members of this session to avoid repeated checks
+    const { data: existingMembers } = await supabase
+      .from('audit_members')
+      .select('user_id')
+      .eq('audit_session_id', auditSessionId);
+    const assignedUserIds = new Set((existingMembers || []).map(m => Number(m.user_id)));
+    const userIdsToAssign = new Set();
+
     for (const row of rows) {
       if (isSummaryRow(row, headerMap)) {
         console.log('Skipping summary row:', row);
@@ -276,15 +284,10 @@ const importExcel = async (auditSessionId, filePath) => {
               }
               if (matchedId) {
                 auditorName = matchedId;
-                // Auto-assign this user to the audit session if not already assigned
-                try {
-                  await supabase.from('audit_members').insert([{
-                    audit_session_id: parseInt(auditSessionId),
-                    user_id: parseInt(matchedId),
-                    status: 'active'
-                  }]);
-                } catch (e) {
-                  // Ignore unique constraint error
+                const matchIdNum = Number(matchedId);
+                if (!assignedUserIds.has(matchIdNum)) {
+                  userIdsToAssign.add(matchIdNum);
+                  assignedUserIds.add(matchIdNum);
                 }
               } else {
                 if (/^user[1-5]$/i.test(auditorName)) {
@@ -304,6 +307,20 @@ const importExcel = async (auditSessionId, filePath) => {
             }
           }
         }
+      }
+    }
+
+    // Batch insert any new audit members
+    if (userIdsToAssign.size > 0) {
+      const assignments = Array.from(userIdsToAssign).map(uid => ({
+        audit_session_id: parseInt(auditSessionId),
+        user_id: parseInt(uid),
+        status: 'active'
+      }));
+      try {
+        await supabase.from('audit_members').insert(assignments);
+      } catch (e) {
+        // Ignore unique constraint errors
       }
     }
 
@@ -328,8 +345,6 @@ const importExcel = async (auditSessionId, filePath) => {
   if (extraSheetName) {
     const extraSheet = workbook.Sheets[extraSheetName];
     const extraData = xlsx.utils.sheet_to_json(extraSheet, { defval: '' });
-    // In extra found, system quantity is 0
-    // Map columns for extra found sheet
     const extraHeaderMap = {};
     if (extraData.length > 0) {
       const extraHeaders = Object.keys(extraData[0]);
@@ -339,10 +354,10 @@ const importExcel = async (auditSessionId, filePath) => {
           extraHeaderMap[canonical] = h;
         }
       });
-      // Override system_qty mapping to ensure it defaults to 0 and physical count is mapped
-      // In Extra Found, Qty is physical count. We map it as physical count.
       console.log('Importing extra found sheet items...');
       
+      const extraItems = [];
+      const extraRows = [];
       for (const row of extraData) {
         if (isSummaryRow(row, extraHeaderMap)) continue;
         
@@ -353,30 +368,56 @@ const importExcel = async (auditSessionId, filePath) => {
         const expiryDate = cleanDate(row[extraHeaderMap.expiry_date || 'Expiry'] || row['Exp'] || '');
         const unitMrp = cleanNumber(row[extraHeaderMap.unit_mrp || 'MRP']);
         const unitPurchaseRate = cleanNumber(row[extraHeaderMap.unit_purchase_rate || 'PR'] || row['PR']);
-        // Qty in extra sheet is the physical quantity
-        const physicalQty = cleanNumber(row[extraHeaderMap.system_qty || 'Qty'] || row['Qty.1']);
         const supplier = cleanString(row['Vendor Name'] || '');
 
-        // Insert as item with system_qty = 0
-        const { data: insertResult, error: insErr } = await supabase
-          .from('items')
-          .insert([{
-            audit_session_id: parseInt(auditSessionId), item_name: itemName,
-            batch_no: batchNo, expiry_date: expiryDate, unit_mrp: unitMrp,
-            unit_purchase_rate: unitPurchaseRate, system_qty: 0,
-            supplier, notes: 'Imported as Extra Found'
-          }])
-          .select('id').single();
-        if (insErr) throw insErr;
-
-        // Record the physical count
-        await supabase.from('auditor_counts').upsert([{
-          item_id: insertResult.id, auditor_name: 'Extra Count',
-          physical_count: physicalQty, updated_at: new Date().toISOString()
-        }], { onConflict: 'item_id,auditor_name' });
-        
-        importedCount++;
+        extraItems.push({
+          audit_session_id: parseInt(auditSessionId), item_name: itemName,
+          batch_no: batchNo, expiry_date: expiryDate, unit_mrp: unitMrp,
+          unit_purchase_rate: unitPurchaseRate, system_qty: 0,
+          supplier, notes: 'Imported as Extra Found'
+        });
+        extraRows.push(row);
       }
+
+      // Batch insert items in chunks
+      const insertedItems = [];
+      const chunkSize = 150;
+      for (let i = 0; i < extraItems.length; i += chunkSize) {
+        const chunk = extraItems.slice(i, i + chunkSize);
+        const { data: chunkResult, error: insErr } = await supabase
+          .from('items')
+          .insert(chunk)
+          .select('id');
+        if (insErr) throw insErr;
+        insertedItems.push(...chunkResult);
+      }
+
+      // Prepare counts for batch upsert
+      const extraCounts = [];
+      for (let i = 0; i < extraRows.length; i++) {
+        const row = extraRows[i];
+        const inserted = insertedItems[i];
+        const physicalQty = cleanNumber(row[extraHeaderMap.system_qty || 'Qty'] || row['Qty.1']);
+        if (inserted && !isNaN(physicalQty)) {
+          extraCounts.push({
+            item_id: inserted.id, auditor_name: 'Extra Count',
+            physical_count: physicalQty, updated_at: new Date().toISOString()
+          });
+        }
+      }
+
+      // Batch upsert counts
+      if (extraCounts.length > 0) {
+        for (let i = 0; i < extraCounts.length; i += chunkSize) {
+          const chunk = extraCounts.slice(i, i + chunkSize);
+          const { error: upsertErr } = await supabase
+            .from('auditor_counts')
+            .upsert(chunk, { onConflict: 'item_id,auditor_name' });
+          if (upsertErr) throw upsertErr;
+        }
+      }
+
+      importedCount += extraItems.length;
     }
   }
 
@@ -396,8 +437,9 @@ const importExcel = async (auditSessionId, filePath) => {
     const expData = xlsx.utils.sheet_to_json(expSheet, { defval: '' });
     if (expData.length > 0) {
       console.log('Importing Expired sheet items...');
-      // In expired sheets, system quantity could be 0, physical count logged
-      // Let's import them
+      
+      const expItems = [];
+      const expRows = [];
       for (const row of expData) {
         if (isSummaryRow(row, headerMap)) continue;
         const itemName = cleanString(row['Item Name']);
@@ -409,25 +451,55 @@ const importExcel = async (auditSessionId, filePath) => {
         const value = cleanNumber(row['VALUE']);
         const unitPurchaseRate = physicalQty > 0 ? value / physicalQty : unitMrp;
 
-        const { data: expInsert, error: expInsErr } = await supabase
-          .from('items')
-          .insert([{
-            audit_session_id: parseInt(auditSessionId), item_name: itemName,
-            batch_no: batchNo, expiry_date: expiryDate, unit_mrp: unitMrp,
-            unit_purchase_rate: unitPurchaseRate, system_qty: 0,
-            notes: 'Imported as Expired Stock'
-          }])
-          .select('id').single();
-        if (expInsErr) throw expInsErr;
-
-        await supabase.from('auditor_counts').upsert([{
-          item_id: expInsert.id, auditor_name: 'Expired Count',
-          physical_count: physicalQty, expiry_check: true,
-          updated_at: new Date().toISOString()
-        }], { onConflict: 'item_id,auditor_name' });
-
-        importedCount++;
+        expItems.push({
+          audit_session_id: parseInt(auditSessionId), item_name: itemName,
+          batch_no: batchNo, expiry_date: expiryDate, unit_mrp: unitMrp,
+          unit_purchase_rate: unitPurchaseRate, system_qty: 0,
+          notes: 'Imported as Expired Stock'
+        });
+        expRows.push(row);
       }
+
+      // Batch insert items in chunks
+      const insertedItems = [];
+      const chunkSize = 150;
+      for (let i = 0; i < expItems.length; i += chunkSize) {
+        const chunk = expItems.slice(i, i + chunkSize);
+        const { data: chunkResult, error: expInsErr } = await supabase
+          .from('items')
+          .insert(chunk)
+          .select('id');
+        if (expInsErr) throw expInsErr;
+        insertedItems.push(...chunkResult);
+      }
+
+      // Prepare counts for batch upsert
+      const expCounts = [];
+      for (let i = 0; i < expRows.length; i++) {
+        const row = expRows[i];
+        const inserted = insertedItems[i];
+        const physicalQty = cleanNumber(row['Qty']);
+        if (inserted && !isNaN(physicalQty)) {
+          expCounts.push({
+            item_id: inserted.id, auditor_name: 'Expired Count',
+            physical_count: physicalQty, expiry_check: true,
+            updated_at: new Date().toISOString()
+          });
+        }
+      }
+
+      // Batch upsert counts
+      if (expCounts.length > 0) {
+        for (let i = 0; i < expCounts.length; i += chunkSize) {
+          const chunk = expCounts.slice(i, i + chunkSize);
+          const { error: upsertErr } = await supabase
+            .from('auditor_counts')
+            .upsert(chunk, { onConflict: 'item_id,auditor_name' });
+          if (upsertErr) throw upsertErr;
+        }
+      }
+
+      importedCount += expItems.length;
     }
   }
 
