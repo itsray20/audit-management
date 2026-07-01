@@ -1868,7 +1868,6 @@ export default function App() {
                       setStoreFilter={setStoreFilter}
                       meta={meta}
                       onRowClick={(item) => {
-                          if (userAuditFrozen && !userPrivileged) return;
                           setSelectedItem(selectedItem?.id === item.id ? null : item);
                         }}
                       selectedItemId={selectedItem?.id}

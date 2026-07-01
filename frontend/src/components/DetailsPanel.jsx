@@ -244,6 +244,7 @@ export default function DetailsPanel({
                   <input
                     type="text"
                     value={editItemName}
+                    disabled={auditIsLocked}
                     onChange={(e) => setEditItemName(e.target.value)}
                     className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-semibold transition-all shadow-sm"
                   />
@@ -254,6 +255,7 @@ export default function DetailsPanel({
                     <input
                       type="text"
                       value={editBatchNo}
+                      disabled={auditIsLocked}
                       onChange={(e) => setEditBatchNo(e.target.value)}
                       className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono text-sm shadow-sm transition-all"
                     />
@@ -264,6 +266,7 @@ export default function DetailsPanel({
                       type="text"
                       value={editExpiryDate}
                       placeholder="YYYY-MM-DD"
+                      disabled={auditIsLocked}
                       onChange={(e) => setEditExpiryDate(e.target.value)}
                       className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm shadow-sm transition-all"
                     />
@@ -274,6 +277,7 @@ export default function DetailsPanel({
                       type="number"
                       step="any"
                       value={editUnitMrp}
+                      disabled={auditIsLocked}
                       onChange={(e) => setEditUnitMrp(e.target.value)}
                       className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm shadow-sm transition-all"
                     />
@@ -284,6 +288,7 @@ export default function DetailsPanel({
                       type="number"
                       step="any"
                       value={editUnitCost}
+                      disabled={auditIsLocked}
                       onChange={(e) => setEditUnitCost(e.target.value)}
                       className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm shadow-sm transition-all"
                     />
@@ -293,6 +298,7 @@ export default function DetailsPanel({
                     <input
                       type="number"
                       value={editSystemQty}
+                      disabled={auditIsLocked}
                       onChange={(e) => setEditSystemQty(e.target.value)}
                       className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-mono shadow-sm transition-all"
                     />
@@ -389,6 +395,7 @@ export default function DetailsPanel({
                   min="0"
                   placeholder="Leave blank to clear"
                   value={physicalCount}
+                  disabled={auditIsLocked}
                   onChange={(e) => setPhysicalCount(e.target.value)}
                   className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono text-sm shadow-sm transition-all"
                 />
@@ -400,6 +407,7 @@ export default function DetailsPanel({
                   type="text"
                   placeholder="Notes about quality, damaged boxes, etc."
                   value={remarks}
+                  disabled={auditIsLocked}
                   onChange={(e) => setRemarks(e.target.value)}
                   className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm shadow-sm transition-all"
                 />
@@ -407,6 +415,7 @@ export default function DetailsPanel({
 
               <button
                 type="submit"
+                disabled={auditIsLocked}
                 className="w-full flex justify-center items-center gap-2 px-4 py-3 bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-white text-white dark:text-zinc-900 font-medium rounded-xl text-sm shadow-sm transition-colors mt-2"
               >
                 <Save className="h-4 w-4" />
