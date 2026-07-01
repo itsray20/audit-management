@@ -5,6 +5,7 @@ import {
   Search, X, Edit3, Lock, CheckCircle, Snowflake, UserX, RefreshCw
 } from 'lucide-react';
 import GlassSelect from './GlassSelect';
+import AlphabetGridSelect from './AlphabetGridSelect';
 
 const formatCurrency = (val) => {
   const num = Number(val || 0);
@@ -373,17 +374,12 @@ export default function AuditTable({
             />
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none flex-nowrap py-0.5">
-            <GlassSelect
-                value={alphabetFilter}
-                onChange={(v) => { setAlphabetFilter(v); setCurrentPage(1); }}
-                options={[
-                  { value: '', label: 'A-Z' },
-                  ...Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(char => ({ value: char, label: char })),
-                  { value: '0-9', label: '(0-9)' }
-                ]}
-                placeholder="A-Z"
-                style={{ minWidth: '80px' }}
-              />
+            <AlphabetGridSelect
+              value={alphabetFilter}
+              onChange={(v) => { setAlphabetFilter(v); setCurrentPage(1); }}
+              placeholder="A-Z"
+              isDark={isDark}
+            />
             <GlassSelect
               value={filter}
               onChange={(v) => { setFilter(v); setCurrentPage(1); }}

@@ -369,6 +369,7 @@ export default function App() {
           limit,
           search,
           filter,
+          alphabet: alphabetFilter,
           supplier: supplierFilter,
           location: locationFilter,
           store: storeFilter,
@@ -1861,6 +1862,8 @@ export default function App() {
                       setSearch={setSearch}
                       filter={filter}
                       setFilter={setFilter}
+                      alphabetFilter={alphabetFilter}
+                      setAlphabetFilter={setAlphabetFilter}
                       supplierFilter={supplierFilter}
                       setSupplierFilter={setSupplierFilter}
                       locationFilter={locationFilter}
