@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import {
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  Search, X, Edit3, Lock, CheckCircle, Snowflake, UserX, RefreshCw
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp,
+  Search, X, Edit3, Lock, CheckCircle, Snowflake, UserX, RefreshCw,
+  Maximize2, Minimize2
 } from 'lucide-react';
 import GlassSelect from './GlassSelect';
-import AlphabetGridSelect from './AlphabetGridSelect';
 
 const formatCurrency = (val) => {
   const num = Number(val || 0);
@@ -46,7 +46,7 @@ const getExpiryStatusPill = (label) => {
 // ─────────────────────────────────────────────────────────────────
 // Inline Count Cell — supports dynamic user_id-based columns
 // ─────────────────────────────────────────────────────────────────
-function InlineCountCell({
+function InlineCountCellInner({
   item,
   auditorId,       // user_id string (or legacy slot like 'User1')
   memberStatus,    // 'active' | 'frozen' | 'removed'
@@ -261,6 +261,25 @@ function InlineCountCell({
     </td>
   );
 }
+
+const InlineCountCell = React.memo(InlineCountCellInner, (prevProps, nextProps) => {
+  const prevCount = prevProps.item.auditor_counts?.find(c => String(c.auditor_name) === String(prevProps.auditorId))?.physical_count;
+  const nextCount = nextProps.item.auditor_counts?.find(c => String(c.auditor_name) === String(nextProps.auditorId))?.physical_count;
+  
+  return (
+    prevProps.item.id === nextProps.item.id &&
+    prevProps.auditorId === nextProps.auditorId &&
+    prevProps.memberStatus === nextProps.memberStatus &&
+    prevProps.auditIsLocked === nextProps.auditIsLocked &&
+    prevProps.bulkEditMode === nextProps.bulkEditMode &&
+    prevCount === nextCount &&
+    prevProps.rowIdx === nextProps.rowIdx &&
+    prevProps.colIdx === nextProps.colIdx &&
+    prevProps.currentUser?.id === nextProps.currentUser?.id &&
+    prevProps.currentUser?.role === nextProps.currentUser?.role
+  );
+});
+
 // ─────────────────────────────────────────────────────────────────
 // Main AuditTable Component
 // ─────────────────────────────────────────────────────────────────
@@ -271,6 +290,7 @@ export default function AuditTable({
   currentPage,
   setCurrentPage,
   limit,
+  setLimit,
   search,
   setSearch,
   filter,
@@ -301,6 +321,53 @@ export default function AuditTable({
 }) {
   const [bulkEditMode, setBulkEditMode] = useState(false);
   const [localSearch, setLocalSearch] = useState(search);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const tableRef = useRef(null);
+  const tableScrollRef = useRef(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const currentlyFull = !!document.fullscreenElement;
+      setIsFullscreen(currentlyFull);
+      if (setLimit) {
+        if (currentlyFull) {
+          setLimit(200);
+          setCurrentPage(1);
+        } else {
+          setLimit(30);
+          setCurrentPage(1);
+        }
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [setLimit, setCurrentPage]);
+
+  const toggleFullscreen = () => {
+    if (!tableRef.current) return;
+    if (!document.fullscreenElement) {
+      tableRef.current.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  const handleTableScroll = (e) => {
+    if (e.target.scrollTop > 155) {
+      setShowScrollTop(true);
+    } else {
+      setShowScrollTop(false);
+    }
+  };
+
+  const scrollToTop = () => {
+    if (tableScrollRef.current) {
+      tableScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   useEffect(() => { setLocalSearch(search); }, [search]);
 
@@ -359,7 +426,11 @@ export default function AuditTable({
   });
 
   return (
-    <div className="space-y-3 w-full">
+    <div 
+      ref={tableRef} 
+      className={`w-full transition-all ${isFullscreen ? 'p-6 overflow-hidden flex flex-col h-screen space-y-3' : 'space-y-3'}`}
+      style={isFullscreen ? { background: 'var(--bg-base)' } : {}}
+    >
       {/* Search & Filters */}
       <div className="panel-card rounded-2xl p-3">
         <div className="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center">
@@ -374,11 +445,16 @@ export default function AuditTable({
             />
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none flex-nowrap py-0.5">
-            <AlphabetGridSelect
+            <GlassSelect
               value={alphabetFilter}
               onChange={(v) => { setAlphabetFilter(v); setCurrentPage(1); }}
+              options={[
+                { value: '', label: 'A-Z' },
+                ...Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(char => ({ value: char, label: char })),
+                { value: '0-9', label: '(0-9)' }
+              ]}
               placeholder="A-Z"
-              isDark={isDark}
+              style={{ minWidth: '80px' }}
             />
             <GlassSelect
               value={filter}
@@ -408,6 +484,27 @@ export default function AuditTable({
               </button>
             )}
             <div className="text-[10px] text-zinc-400 font-bold px-2 font-mono shrink-0">{totalItems} entries</div>
+            
+            {/* Fullscreen Maximize / Minimize Button */}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-550 hover:text-zinc-750 dark:hover:text-zinc-200 shrink-0 flex items-center gap-1"
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Mode"}
+              style={{ fontFamily: 'inherit' }}
+            >
+              {isFullscreen ? (
+                <>
+                  <Minimize2 className="h-3.5 w-3.5" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">Minimize</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">Maximize</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -430,7 +527,7 @@ export default function AuditTable({
       )}
 
       {/* Table Container */}
-      <div className="panel-card rounded-2xl overflow-hidden relative min-h-[300px]">
+      <div className={`panel-card rounded-2xl overflow-hidden relative flex flex-col ${isFullscreen ? 'flex-1 min-h-0' : 'min-h-[300px]'}`}>
         {isInitialLoading ? (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-zinc-50/80 dark:bg-zinc-900/80 rounded-2xl transition-all duration-300">
             <div className="flex flex-col items-center gap-4 bg-white dark:bg-zinc-900 p-6 rounded-3xl shadow-xl border border-zinc-200 dark:border-zinc-800">
@@ -439,200 +536,204 @@ export default function AuditTable({
             </div>
           </div>
         ) : (
-        <div className="overflow-x-auto">
-          <table className="w-auto min-w-full text-xs border-collapse" style={{ tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '36px' }} />   {/* # */}
-              <col style={{ width: '150px' }} />  {/* Item Name */}
-              <col style={{ width: '100px' }} />  {/* Batch */}
-              <col style={{ width: '80px' }} />   {/* Expiry */}
-              <col style={{ width: '90px' }} />   {/* Purchase Rate */}
-              <col style={{ width: '80px' }} />   {/* Selling Rate */}
-              <col style={{ width: '64px' }} />   {/* Avail. Qty */}
-              {visibleColumns.map((col) => (
-                <col key={col.id} style={{ width: '72px' }} />
-              ))}
-              <col style={{ width: '56px' }} />   {/* Total */}
-              <col style={{ width: '76px' }} />   {/* Difference */}
-              <col style={{ width: '88px' }} />   {/* Diff. Value */}
-              <col style={{ width: '88px' }} />   {/* Status */}
-            </colgroup>
-            <thead>
-              <tr className="border-b border-zinc-200 dark:border-zinc-700/60 text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider text-[10px] text-center" style={{ background: 'var(--glass-bg-light)' }}>
-                <th colSpan="7" className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700/60">Static Medication Info</th>
-                <th colSpan={visibleColumns.length} className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700/60" style={{ background: 'rgba(0,122,255,0.02)' }}>Physical Count Entries</th>
-                <th colSpan="3" className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700/60" style={{ background: 'rgba(0,122,255,0.02)' }}>Reconciliation Metrics</th>
-                <th colSpan="1" className="px-4 py-2">Status</th>
-              </tr>
-              <tr className="border-b border-zinc-200 dark:border-zinc-700/60 text-zinc-600 dark:text-zinc-300 text-left font-semibold" style={{ background: 'var(--glass-bg-light)' }}>
-                <th  className="px-4 py-2.5 text-center whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
-                  <div className="flex items-center justify-center">#</div>
-                </th>
-                <th  className="px-2 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
-                  <div className="flex items-center justify-between">Item Name</div>
-                </th>
-                <th  className="px-3 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
-                  <div className="flex items-center justify-between">Batch</div>
-                </th>
-                <th  className="px-3 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
-                  <div className="flex items-center justify-between">Expiry</div>
-                </th>
-                <th  className="px-3 py-2.5 text-right whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
-                  <div className="flex items-center justify-end">Purchase Rate</div>
-                </th>
-                <th className="px-3 py-2.5 text-right whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">Selling Rate</th>
-                <th  className="px-3 py-2.5 text-center border-r border-zinc-200 dark:border-zinc-700/60 font-bold whitespace-nowrap select-none">
-                  <div className="flex items-center justify-center">Avail. Qty</div>
-                </th>
-
-                {visibleColumns.map((col) => {
-                  const isOwnCol = String(col.id) === String(currentUser?.id);
-                  const isFrozen = col.status === 'frozen';
-                  const isRemoved = col.status === 'removed';
-                  return (
-                    <th
-                      key={col.id}
-                      className={`px-1 py-2.5 text-center whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 ${isOwnCol ? 'font-bold border-b-2' : ''}`}
-                      style={{
-                        borderBottomColor: isOwnCol ? 'var(--accent)' : undefined,
-                        color: isFrozen ? '#FF9500' : isRemoved ? '#FF3B30' : isOwnCol ? 'var(--accent)' : undefined,
-                        background: isOwnCol ? 'var(--accent-light)' : isFrozen ? 'rgba(255,149,0,0.05)' : isRemoved ? 'rgba(255,59,48,0.04)' : undefined,
-                      }}
-                    >
-                      <div className="flex items-center justify-center gap-1">
-                        {isFrozen && <Snowflake className="h-2.5 w-2.5 text-amber-400" />}
-                        {isRemoved && <UserX className="h-2.5 w-2.5 text-rose-400" />}
-                        <span className="truncate max-w-[70px]">{col.name}</span>
-                      </div>
-                    </th>
-                  );
-                })}
-
-                <th  className="px-3 py-2.5 text-center font-bold whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
-                  <div className="flex items-center justify-center">Total</div>
-                </th>
-                <th  className="px-3 py-2.5 text-center font-bold whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
-                  <div className="flex items-center justify-center">Difference</div>
-                </th>
-                <th  className="px-3 py-2.5 text-right font-bold border-r border-zinc-200 dark:border-zinc-700/60 font-mono whitespace-nowrap select-none">
-                  <div className="flex items-center justify-end">Diff. Value</div>
-                </th>
-                <th  className="px-3 py-2.5 text-center font-bold whitespace-nowrap select-none">
-                  <div className="flex items-center justify-center">Status</div>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700/60">
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan={7 + visibleColumns.length + 4} className="px-4 py-16 text-center text-zinc-400 dark:text-zinc-600">
-                    <div className="space-y-2">
-                      <p className="font-semibold text-sm">No items found</p>
-                      {hasFilters && <p className="text-xs">Try clearing filters or search parameters.</p>}
-                    </div>
-                  </td>
+          <div 
+            ref={tableScrollRef}
+            onScroll={handleTableScroll}
+            className={`overflow-x-auto overflow-y-auto ${isFullscreen ? 'flex-1 min-h-0' : ''}`}
+          >
+            <table className="w-auto min-w-full text-xs border-collapse" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '36px' }} />{/* # */}
+                <col style={{ width: '150px' }} />{/* Item Name */}
+                <col style={{ width: '100px' }} />{/* Batch */}
+                <col style={{ width: '80px' }} />{/* Expiry */}
+                <col style={{ width: '90px' }} />{/* Purchase Rate */}
+                <col style={{ width: '80px' }} />{/* Selling Rate */}
+                <col style={{ width: '64px' }} />{/* Avail. Qty */}
+                {visibleColumns.map((col) => (
+                  <col key={col.id} style={{ width: '72px' }} />
+                ))}
+                <col style={{ width: '56px' }} />{/* Total */}
+                <col style={{ width: '76px' }} />{/* Difference */}
+                <col style={{ width: '88px' }} />{/* Diff. Value */}
+                <col style={{ width: '88px' }} />{/* Status */}
+              </colgroup>
+              <thead className="sticky top-0 z-10 shadow-sm" style={{ background: 'var(--card-solid)' }}>
+                <tr className="border-b border-zinc-200 dark:border-zinc-700/60 text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider text-[10px] text-center" style={{ background: 'var(--card-solid)' }}>
+                  <th colSpan="7" className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700/60">Static Medication Info</th>
+                  <th colSpan={visibleColumns.length} className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700/60" style={{ background: 'rgba(0,122,255,0.02)' }}>Physical Count Entries</th>
+                  <th colSpan="3" className="px-4 py-2 border-r border-zinc-200 dark:border-zinc-700/60" style={{ background: 'rgba(0,122,255,0.02)' }}>Reconciliation Metrics</th>
+                  <th colSpan="1" className="px-4 py-2">Status</th>
                 </tr>
-              )}
-              {items.map((item, rowIdx) => {
-                const totalPhysical = item.totalPhysical || 0;
-                const diff = item.difference || 0;
-                const diffValue = item.differenceValue || 0;
-                const expLabel = getExpiryLabel(item.expiry_date, activeSession?.audit_date);
-                const isSelected = selectedItemId === item.id;
+                <tr className="border-b border-zinc-200 dark:border-zinc-700/60 text-zinc-600 dark:text-zinc-300 text-left font-semibold" style={{ background: 'var(--card-solid)' }}>
+                  <th className="px-4 py-2.5 text-center whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                    <div className="flex items-center justify-center">#</div>
+                  </th>
+                  <th className="px-2 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                    <div className="flex items-center justify-between">Item Name</div>
+                  </th>
+                  <th className="px-3 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                    <div className="flex items-center justify-between">Batch</div>
+                  </th>
+                  <th className="px-3 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                    <div className="flex items-center justify-between">Expiry</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-right whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                    <div className="flex items-center justify-end">Purchase Rate</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-right whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">Selling Rate</th>
+                  <th className="px-3 py-2.5 text-center border-r border-zinc-200 dark:border-zinc-700/60 font-bold whitespace-nowrap select-none">
+                    <div className="flex items-center justify-center">Avail. Qty</div>
+                  </th>
 
-                return (
-                  <tr
-                    key={item.id}
-                    className={`group transition-colors align-middle cursor-pointer ${isSelected ? 'bg-blue-500/5 dark:bg-blue-500/8' : 'hover:bg-zinc-50 dark:hover:bg-white/[0.03]'}`}
-                  >
-                    {/* Index */}
-                    <td className="px-2 py-1.5 text-center text-zinc-400 dark:text-zinc-500 font-mono border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
-                      {offset + rowIdx + 1}
-                    </td>
-
-                    {/* Product Name & Location */}
-                    <td className="px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700/60 overflow-hidden" onClick={() => onRowClick(item)}>
-                      <div className="font-bold text-zinc-900 dark:text-zinc-100 leading-tight truncate">{item.item_name}</div>
-                      {item.location && (
-                        <div className="text-zinc-400 text-[10px] mt-0.5 flex items-center gap-1 truncate">
-                          <span>📍 {item.location}</span>
-                          {item.store_name && <span>({item.store_name})</span>}
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-400 font-mono border-r border-zinc-200 dark:border-zinc-700/60 overflow-hidden" onClick={() => onRowClick(item)}>
-                      <span className="truncate block">{item.batch_no || '—'}</span>
-                    </td>
-
-                    {/* Expiry */}
-                    <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-400 font-mono border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
-                      {item.expiry_date || '—'}
-                    </td>
-
-                    {/* Cost */}
-                    <td className="px-2 py-1.5 text-right text-zinc-700 dark:text-zinc-300 font-mono font-medium border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
-                      {item.unit_purchase_rate != null ? `₹${Number(item.unit_purchase_rate).toFixed(2)}` : '—'}
-                    </td>
-
-                    {/* MRP */}
-                    <td className="px-2 py-1.5 text-right text-zinc-500 dark:text-zinc-400 font-mono border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
-                      {item.unit_mrp != null ? `₹${Number(item.unit_mrp).toFixed(2)}` : '—'}
-                    </td>
-
-                    {/* System Qty */}
-                    <td className="px-2 py-1.5 text-center font-bold text-zinc-800 dark:text-zinc-200 border-r border-zinc-200 dark:border-zinc-700/60 font-mono" onClick={() => onRowClick(item)}>
-                      {item.system_qty ?? '0'}
-                    </td>
-
-                    {/* Dynamic Count Columns */}
-                    {visibleColumns.map((col, colIdx) => (
-                      <InlineCountCell
+                  {visibleColumns.map((col) => {
+                    const isOwnCol = String(col.id) === String(currentUser?.id);
+                    const isFrozen = col.status === 'frozen';
+                    const isRemoved = col.status === 'removed';
+                    return (
+                      <th
                         key={col.id}
-                        item={item}
-                        auditorId={col.id}
-                        memberStatus={col.status}
-                        currentUser={currentUser}
-                        auditIsLocked={auditIsLocked}
-                        onSaved={onCountSaved}
-                        onPutComplete={onCountSyncReady}
-                        rowIdx={rowIdx}
-                        colIdx={colIdx}
-                        bulkEditMode={bulkEditMode}
-                      />
-                    ))}
+                        className={`px-1 py-2.5 text-center whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 ${isOwnCol ? 'font-bold border-b-2' : ''}`}
+                        style={{
+                          borderBottomColor: isOwnCol ? 'var(--accent)' : undefined,
+                          color: isFrozen ? '#FF9500' : isRemoved ? '#FF3B30' : isOwnCol ? 'var(--accent)' : undefined,
+                          background: isOwnCol ? 'var(--accent-light)' : isFrozen ? 'rgba(255,149,0,0.05)' : isRemoved ? 'rgba(255,59,48,0.04)' : undefined,
+                        }}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          {isFrozen && <Snowflake className="h-2.5 w-2.5 text-amber-400" />}
+                          {isRemoved && <UserX className="h-2.5 w-2.5 text-rose-400" />}
+                          <span className="truncate max-w-[70px]">{col.name}</span>
+                        </div>
+                      </th>
+                    );
+                  })}
 
-                    {/* Total Physical */}
-                    <td className="px-2 py-1.5 text-center font-extrabold text-zinc-950 dark:text-white font-mono border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
-                      {totalPhysical}
-                    </td>
-
-                    {/* Difference Qty */}
-                    <td className={`px-2 py-1.5 text-center font-extrabold font-mono border-r border-zinc-200 dark:border-zinc-700/60 ${diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : diff < 0 ? 'text-rose-600 dark:text-rose-450' : 'text-zinc-500 dark:text-zinc-400'}`} onClick={() => onRowClick(item)}>
-                      {diff > 0 ? `+${diff}` : diff}
-                    </td>
-
-                    {/* Variance Value */}
-                    <td className={`px-2 py-1.5 text-right font-bold border-r border-zinc-200 dark:border-zinc-700/60 font-mono ${diffValue > 0 ? 'text-emerald-600 dark:text-emerald-400' : diffValue < 0 ? 'text-rose-600 dark:text-rose-450' : 'text-zinc-500 dark:text-zinc-400'}`} onClick={() => onRowClick(item)}>
-                      {(diffValue > 0 ? '+' : '') + formatCurrency(diffValue)}
-                    </td>
-
-                    {/* Expiry Status */}
-                    <td className="px-2 py-1.5 text-center" onClick={() => onRowClick(item)}>
-                      {expLabel ? (
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-extrabold tracking-wide uppercase border whitespace-nowrap ${getExpiryStatusPill(expLabel.label)}`}>
-                          {expLabel.label}
-                        </span>
-                      ) : (
-                        <span className="text-zinc-300 dark:text-zinc-700">—</span>
-                      )}
+                  <th className="px-3 py-2.5 text-center font-bold whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                    <div className="flex items-center justify-center">Total</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-bold whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                    <div className="flex items-center justify-center">Difference</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-bold border-r border-zinc-200 dark:border-zinc-700/60 font-mono whitespace-nowrap select-none">
+                    <div className="flex items-center justify-end">Diff. Value</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-bold whitespace-nowrap select-none">
+                    <div className="flex items-center justify-center">Status</div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700/60">
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={7 + visibleColumns.length + 4} className="px-4 py-16 text-center text-zinc-400 dark:text-zinc-600">
+                      <div className="space-y-2">
+                        <p className="font-semibold text-sm">No items found</p>
+                        {hasFilters && <p className="text-xs">Try clearing filters or search parameters.</p>}
+                      </div>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                )}
+                {items.map((item, rowIdx) => {
+                  const totalPhysical = item.totalPhysical || 0;
+                  const diff = item.difference || 0;
+                  const diffValue = item.differenceValue || 0;
+                  const expLabel = getExpiryLabel(item.expiry_date, activeSession?.audit_date);
+                  const isSelected = selectedItemId === item.id;
+
+                  return (
+                    <tr
+                      key={item.id}
+                      className={`group transition-colors align-middle cursor-pointer ${isSelected ? 'bg-blue-500/5 dark:bg-blue-500/8' : 'hover:bg-zinc-50 dark:hover:bg-white/[0.03]'}`}
+                    >
+                      {/* Index */}
+                      <td className="px-2 py-1.5 text-center text-zinc-400 dark:text-zinc-500 font-mono border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
+                        {offset + rowIdx + 1}
+                      </td>
+
+                      {/* Product Name & Location */}
+                      <td className="px-2 py-1.5 border-r border-zinc-200 dark:border-zinc-700/60 overflow-hidden" onClick={() => onRowClick(item)}>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100 leading-tight truncate">{item.item_name}</div>
+                        {item.location && (
+                          <div className="text-zinc-400 text-[10px] mt-0.5 flex items-center gap-1 truncate">
+                            <span>📍 {item.location}</span>
+                            {item.store_name && <span>({item.store_name})</span>}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-400 font-mono border-r border-zinc-200 dark:border-zinc-700/60 overflow-hidden" onClick={() => onRowClick(item)}>
+                        <span className="truncate block">{item.batch_no || '—'}</span>
+                      </td>
+
+                      {/* Expiry */}
+                      <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-400 font-mono border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
+                        {item.expiry_date || '—'}
+                      </td>
+
+                      {/* Cost */}
+                      <td className="px-2 py-1.5 text-right text-zinc-700 dark:text-zinc-300 font-mono font-medium border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
+                        {item.unit_purchase_rate != null ? `₹${Number(item.unit_purchase_rate).toFixed(2)}` : '—'}
+                      </td>
+
+                      {/* MRP */}
+                      <td className="px-2 py-1.5 text-right text-zinc-500 dark:text-zinc-400 font-mono border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
+                        {item.unit_mrp != null ? `₹${Number(item.unit_mrp).toFixed(2)}` : '—'}
+                      </td>
+
+                      {/* System Qty */}
+                      <td className="px-2 py-1.5 text-center font-bold text-zinc-800 dark:text-zinc-200 border-r border-zinc-200 dark:border-zinc-700/60 font-mono" onClick={() => onRowClick(item)}>
+                        {item.system_qty ?? '0'}
+                      </td>
+
+                      {/* Dynamic Count Columns */}
+                      {visibleColumns.map((col, colIdx) => (
+                        <InlineCountCell
+                          key={col.id}
+                          item={item}
+                          auditorId={col.id}
+                          memberStatus={col.status}
+                          currentUser={currentUser}
+                          auditIsLocked={auditIsLocked}
+                          onSaved={onCountSaved}
+                          onPutComplete={onCountSyncReady}
+                          rowIdx={rowIdx}
+                          colIdx={colIdx}
+                          bulkEditMode={bulkEditMode}
+                        />
+                      ))}
+
+                      {/* Total Physical */}
+                      <td className="px-2 py-1.5 text-center font-extrabold text-zinc-950 dark:text-white font-mono border-r border-zinc-200 dark:border-zinc-700/60" onClick={() => onRowClick(item)}>
+                        {totalPhysical}
+                      </td>
+
+                      {/* Difference Qty */}
+                      <td className={`px-2 py-1.5 text-center font-extrabold font-mono border-r border-zinc-200 dark:border-zinc-700/60 ${diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : diff < 0 ? 'text-rose-600 dark:text-rose-450' : 'text-zinc-500 dark:text-zinc-400'}`} onClick={() => onRowClick(item)}>
+                        {diff > 0 ? `+${diff}` : diff}
+                      </td>
+
+                      {/* Variance Value */}
+                      <td className={`px-2 py-1.5 text-right font-bold border-r border-zinc-200 dark:border-zinc-700/60 font-mono ${diffValue > 0 ? 'text-emerald-600 dark:text-emerald-400' : diffValue < 0 ? 'text-rose-600 dark:text-rose-450' : 'text-zinc-500 dark:text-zinc-400'}`} onClick={() => onRowClick(item)}>
+                        {(diffValue > 0 ? '+' : '') + formatCurrency(diffValue)}
+                      </td>
+
+                      {/* Expiry Status */}
+                      <td className="px-2 py-1.5 text-center" onClick={() => onRowClick(item)}>
+                        {expLabel ? (
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-extrabold tracking-wide uppercase border whitespace-nowrap ${getExpiryStatusPill(expLabel.label)}`}>
+                            {expLabel.label}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-300 dark:text-zinc-700">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {/* Pagination */}
@@ -649,6 +750,19 @@ export default function AuditTable({
             <button onClick={() => handlePageChange(totalPages)} disabled={currentPage === totalPages} className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 text-zinc-600 dark:text-zinc-400"><ChevronsRight className="h-3.5 w-3.5" /></button>
           </div>
         </div>
+
+        {showScrollTop && (
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="absolute bottom-16 right-6 p-2 rounded-full bg-zinc-900/90 hover:bg-zinc-950 dark:bg-white/90 dark:hover:bg-white text-white dark:text-zinc-950 shadow-2xl transition-all scale-100 hover:scale-105 active:scale-95 z-40 border border-zinc-700/30 flex items-center justify-center gap-1"
+            title="Scroll to Top"
+            style={{ fontFamily: 'inherit' }}
+          >
+            <ChevronUp className="h-4 w-4" />
+            <span className="text-[9px] font-extrabold uppercase tracking-wider pr-1">Back to Top</span>
+          </button>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import {
   Building2, Plus, Phone, MapPin, Calendar, ChevronRight,
@@ -1399,12 +1400,13 @@ function Toast({ toast }) {
 }
 
 function Backdrop({ children, onClose }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background:'rgba(0,0,0,0.48)', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)' }}
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      style={{ background:'rgba(0,0,0,0.5)', backdropFilter:'blur(10px)', WebkitBackdropFilter:'blur(10px)' }}
       onClick={onClose}>
       {children}
-    </div>
+    </div>,
+    document.fullscreenElement || document.body
   );
 }
 

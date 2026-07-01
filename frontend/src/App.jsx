@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import axios from 'axios';
 import {
   Sun, Moon, Package, UploadCloud, DownloadCloud, Plus, Trash2,
-  User, Activity, Play, X, LogOut, Shield, Settings, Check,
+  User, Activity, Play, X, LogOut, Shield, Settings, Check, CheckCircle2,
   Lock, Unlock, FileText, Users, KeyRound, AlertTriangle, ShieldCheck,
   Building2, Star, Code2, Briefcase, UserCircle, RefreshCw, ChevronDown, Orbit, Search,
   Calendar, ChevronLeft, ChevronRight, ClipboardList
@@ -127,7 +127,7 @@ export default function App() {
     sessionStorage.setItem('auditCurrentPage', currentPage);
   }, [currentPage]);
 
-  const [limit] = useState(30);
+  const [limit, setLimit] = useState(30);
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
@@ -146,6 +146,12 @@ export default function App() {
 
   // Audit members for current session
   const [auditMembers, setAuditMembers] = useState([]);
+  
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showReopenModal, setShowReopenModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [pendingUploadFile, setPendingUploadFile] = useState(null);
 
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
@@ -249,7 +255,7 @@ export default function App() {
       setDashboardMetrics(null);
       setGeneralTrail([]);
     }
-  }, [activeSession, currentPage, search, filter, alphabetFilter, supplierFilter, locationFilter, storeFilter, sortBy, sortOrder]);
+  }, [activeSession, currentPage, search, filter, alphabetFilter, supplierFilter, locationFilter, storeFilter, sortBy, sortOrder, limit]);
 
   useEffect(() => {
     if (!activeSession || !syncEnabled || !currentUser) return;
@@ -259,7 +265,7 @@ export default function App() {
       if (activeTab === 'trail') fetchGeneralTrail(true);
     }, 5000);
     return () => clearInterval(id);
-  }, [activeSession, syncEnabled, activeTab, currentPage, search, filter, alphabetFilter, supplierFilter, locationFilter, storeFilter, currentUser, sortBy, sortOrder]);
+  }, [activeSession, syncEnabled, activeTab, currentPage, search, filter, alphabetFilter, supplierFilter, locationFilter, storeFilter, currentUser, sortBy, sortOrder, limit]);
 
   useEffect(() => { setSelectedItem(null); }, [activeTab]);
 
@@ -443,6 +449,49 @@ export default function App() {
     }
   };
 
+  const handleCountSaved = useCallback((itemId, auditorId, newValue) => {
+    // Block any background polls from overwriting the optimistic
+    // state while the PUT is still in-flight on the server.
+    savingCountRef.current = true;
+
+    const memberIdSet = new Set((auditMembers || []).map(m => String(m.user_id)));
+    const isAllowed = (name) => memberIdSet.has(String(name));
+
+    setItems(prev => prev.map(it => {
+      if (it.id !== itemId) return it;
+      const existingCounts = it.auditor_counts || [];
+      const alreadyExists = existingCounts.some(c => String(c.auditor_name) === String(auditorId));
+      const newCounts = alreadyExists
+        ? existingCounts.map(c =>
+          String(c.auditor_name) === String(auditorId)
+            ? { ...c, physical_count: newValue }
+            : c
+        )
+        : [...existingCounts, { auditor_name: auditorId, physical_count: newValue }];
+
+      const totalPhysical = newCounts
+        .filter(c => isAllowed(c.auditor_name))
+        .reduce((sum, c) => sum + (c.physical_count != null ? Number(c.physical_count) : 0), 0)
+        + Number(it.manual_add || 0)
+        + Number(it.manual_recheck || 0);
+
+      const systemQty = Number(it.system_qty || 0);
+      const isCounted = newCounts.some(c => isAllowed(c.auditor_name) && c.physical_count != null);
+      const difference = isCounted ? (totalPhysical - systemQty) : 0;
+      const differenceValue = difference * Number(it.unit_purchase_rate || 0);
+
+      return { ...it, auditor_counts: newCounts, totalPhysical, difference, differenceValue };
+    }));
+  }, [auditMembers]);
+
+  const handleCountSyncReady = useCallback(() => {
+    // PUT is confirmed by server — cache is now cleared.
+    // Unblock polls, then fetch fresh authoritative state.
+    savingCountRef.current = false;
+    fetchItems(true);
+    fetchDashboardMetrics(true);
+  }, [fetchItems, fetchDashboardMetrics]);
+
   const toggleDatePicker = () => {
     if (!showDatePicker) {
       try {
@@ -515,41 +564,67 @@ export default function App() {
   const handleToggleStatus = async () => {
     if (!activeSession) return;
     const newStatus = activeSession.status === 'Active' ? 'Completed' : 'Active';
-    const confirmMsg = newStatus === 'Completed'
-      ? 'Mark this audit as COMPLETED? No one except Admin/Developer will be able to make changes.'
-      : 'Re-open this audit to Active status?';
-    if (!window.confirm(confirmMsg)) return;
+    if (newStatus === 'Completed') {
+      setShowCompleteModal(true);
+    } else {
+      setShowReopenModal(true);
+    }
+  };
+
+  const executeToggleStatus = async (statusOverride) => {
     try {
+      const newStatus = statusOverride || 'Completed';
       const res = await axios.put(`/api/audits/${activeSession.id}/status`, { status: newStatus });
       setActiveSession(res.data);
       await fetchSessions();
+      setShowCompleteModal(false);
+      setShowReopenModal(false);
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to update status.');
     }
   };
 
-  const handleFileUpload = async (e) => {
-    e.preventDefault();
-    if (!uploadFile || !activeSession) return;
+  const handleFileUpload = async (fileToUpload) => {
+    if (!fileToUpload || !activeSession) return;
     setIsUploading(true);
     setUploadStatus('Uploading file...');
+    
+    // Start progress simulation
+    let progress = 0;
+    setImportProgress(0);
+    const interval = setInterval(() => {
+      progress += Math.random() * 15 + 10;
+      if (progress > 90) progress = 90; // hold at 90% until api completes
+      setImportProgress(Math.floor(progress));
+    }, 400);
+
     const formData = new FormData();
-    formData.append('file', uploadFile);
+    formData.append('file', fileToUpload);
     try {
       const res = await axios.post(`/api/audits/${activeSession.id}/import`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
+      clearInterval(interval);
+      setImportProgress(100);
       setUploadStatus(`✓ Imported successfully: ${res.data.imported_rows} rows added!`);
-      setUploadFile(null);
-      fetchItems();
-      fetchDashboardMetrics();
+      
+      // wait a moment to show 100%
       setTimeout(() => {
+        setUploadFile(null);
+        setPendingUploadFile(null);
+        setShowImportModal(false);
+        setIsUploading(false);
+        setImportProgress(0);
         setUploadStatus('');
-      }, 4000);
+        fetchDashboardMetrics();
+        fetchItems();
+        fetchSessions();
+      }, 1000);
     } catch (err) {
-      setUploadStatus(err.response?.data?.error || 'Upload failed.');
-    } finally {
+      clearInterval(interval);
       setIsUploading(false);
+      setImportProgress(0);
+      setUploadStatus(err.response?.data?.error || 'Upload failed.');
     }
   };
 
@@ -977,6 +1052,7 @@ export default function App() {
                 )}
               </div>
 
+              {/* ── Search + Filter Card (always at top) ── */}
               {/* ── Search + Filter Card (always at top) ── */}
               <div style={{ ...card({ padding: '0', overflow: 'hidden', marginBottom: 20 }) }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '10px 16px', borderBottom: isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.05)' }}>
@@ -1712,23 +1788,18 @@ export default function App() {
                   {userPrivileged && (() => {
                     const hasImported = totalItems > 0;
                     return (
-                      <form onSubmit={handleFileUpload} className="flex items-center gap-2 shrink-0">
-                        <label
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => {
+                            if (!hasImported) setShowImportModal(true);
+                          }}
                           className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${hasImported ? 'opacity-40 cursor-not-allowed select-none' : 'cursor-pointer hover:bg-[var(--glass-bg-hover)]'}`}
                           style={{ background: 'var(--glass-bg-light)', border: '1px solid var(--glass-border-dim)', color: 'var(--text-secondary)' }}
                         >
                           <UploadCloud className="h-3.5 w-3.5" />
-                          {hasImported ? 'Imported' : (uploadFile ? uploadFile.name.substring(0, 12) + '...' : 'Import')}
-                          {!hasImported && (
-                            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { if (e.target.files.length > 0) { setUploadFile(e.target.files[0]); setUploadStatus(''); } }} />
-                          )}
-                        </label>
-                        {uploadFile && !hasImported && (
-                          <button type="submit" disabled={isUploading} className="px-3 py-2 text-xs font-semibold rounded-lg disabled:opacity-50" style={{ background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)' }}>
-                            {isUploading ? '...' : 'Upload'}
-                          </button>
-                        )}
-                      </form>
+                          {hasImported ? 'Imported' : 'Import'}
+                        </button>
+                      </div>
                     );
                   })()}
                   {uploadStatus && <span className={`text-xs font-medium px-2 shrink-0 ${uploadStatus.startsWith('✓') ? 'text-emerald-400' : 'text-rose-400'}`}>{uploadStatus}</span>}
@@ -1736,10 +1807,10 @@ export default function App() {
                   {/* Export — Admin/Dev/CoFounder only */}
                   {userUpperTier && (
                     <>
-                      <a href={`${API_BASE}/api/audits/${activeSession.id}/export`} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all shrink-0" style={{ background: 'rgba(52,199,89,0.12)', border: '1px solid rgba(52,199,89,0.25)', color: '#34C759' }} download>
+                      <a href={`${API_BASE}/api/audits/${activeSession.id}/export?role=${userRole}`} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all shrink-0" style={{ background: 'rgba(52,199,89,0.12)', border: '1px solid rgba(52,199,89,0.25)', color: '#34C759' }} download>
                         <DownloadCloud className="h-3.5 w-3.5" /> Excel <span className="hidden sm:inline">Report</span>
                       </a>
-                      <a href={`${API_BASE}/api/audits/${activeSession.id}/export/word`} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all shrink-0" style={{ background: 'rgba(0,122,255,0.12)', border: '1px solid rgba(0,122,255,0.25)', color: '#007AFF' }} download>
+                      <a href={`${API_BASE}/api/audits/${activeSession.id}/export/word?role=${userRole}`} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all shrink-0" style={{ background: 'rgba(0,122,255,0.12)', border: '1px solid rgba(0,122,255,0.25)', color: '#007AFF' }} download>
                         <FileText className="h-3.5 w-3.5" /> Word <span className="hidden sm:inline">Report</span>
                       </a>
                     </>
@@ -1858,10 +1929,12 @@ export default function App() {
                       currentPage={currentPage}
                       setCurrentPage={setCurrentPage}
                       limit={limit}
+                      setLimit={setLimit}
                       search={search}
                       setSearch={setSearch}
                       filter={filter}
                       setFilter={setFilter}
+                      isDark={isDark}
                       alphabetFilter={alphabetFilter}
                       setAlphabetFilter={setAlphabetFilter}
                       supplierFilter={supplierFilter}
@@ -1880,47 +1953,8 @@ export default function App() {
                       roleNamesMap={roleNamesMap}
                       currentUser={currentUser}
                       auditIsLocked={auditIsLocked || (userAuditFrozen && !userPrivileged)}
-                      onCountSaved={(itemId, auditorId, newValue) => {
-                        // Block any background polls from overwriting the optimistic
-                        // state while the PUT is still in-flight on the server.
-                        savingCountRef.current = true;
-
-                        const memberIdSet = new Set((auditMembers || []).map(m => String(m.user_id)));
-                        const isAllowed = (name) => memberIdSet.has(String(name));
-
-                        setItems(prev => prev.map(it => {
-                          if (it.id !== itemId) return it;
-                          const existingCounts = it.auditor_counts || [];
-                          const alreadyExists = existingCounts.some(c => String(c.auditor_name) === String(auditorId));
-                          const newCounts = alreadyExists
-                            ? existingCounts.map(c =>
-                              String(c.auditor_name) === String(auditorId)
-                                ? { ...c, physical_count: newValue }
-                                : c
-                            )
-                            : [...existingCounts, { auditor_name: auditorId, physical_count: newValue }];
-
-                          const totalPhysical = newCounts
-                            .filter(c => isAllowed(c.auditor_name))
-                            .reduce((sum, c) => sum + (c.physical_count != null ? Number(c.physical_count) : 0), 0)
-                            + Number(it.manual_add || 0)
-                            + Number(it.manual_recheck || 0);
-
-                          const systemQty = Number(it.system_qty || 0);
-                          const isCounted = newCounts.some(c => isAllowed(c.auditor_name) && c.physical_count != null);
-                          const difference = isCounted ? (totalPhysical - systemQty) : 0;
-                          const differenceValue = difference * Number(it.unit_purchase_rate || 0);
-
-                          return { ...it, auditor_counts: newCounts, totalPhysical, difference, differenceValue };
-                        }));
-                      }}
-                      onCountSyncReady={() => {
-                        // PUT is confirmed by server — cache is now cleared.
-                        // Unblock polls, then fetch fresh authoritative state.
-                        savingCountRef.current = false;
-                        fetchItems(true);
-                        fetchDashboardMetrics(true);
-                      }}
+                      onCountSaved={handleCountSaved}
+                      onCountSyncReady={handleCountSyncReady}
                       activeSession={activeSession}
                       sortBy={sortBy}
                       setSortBy={setSortBy}
@@ -2622,7 +2656,7 @@ export default function App() {
                                             {/* Excel export */}
                                             {userUpperTier && (
                                               <a
-                                                href={`${API_BASE}/api/audits/${s.id}/export`}
+                                                href={`${API_BASE}/api/audits/${s.id}/export?role=${userRole}`}
                                                 className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase border decoration-none transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap"
                                                 style={{
                                                   background: 'rgba(52,199,89,0.08)',
@@ -2641,7 +2675,7 @@ export default function App() {
                                             {/* Word export */}
                                             {userUpperTier && (
                                               <a
-                                                href={`${API_BASE}/api/audits/${s.id}/export/word`}
+                                                href={`${API_BASE}/api/audits/${s.id}/export/word?role=${userRole}`}
                                                 className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase border decoration-none transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap"
                                                 style={{
                                                   background: 'rgba(0,122,255,0.08)',
@@ -2755,7 +2789,7 @@ export default function App() {
                 </div>
 
                 {/* Detail Panel Modal */}
-                {selectedItem && (
+                {selectedItem && ReactDOM.createPortal(
                   <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => setSelectedItem(null)}>
                     <div
                       className="w-full max-w-5xl max-h-[90vh] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl relative animate-slide-up flex flex-col"
@@ -2766,7 +2800,8 @@ export default function App() {
                         <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} auditMembers={auditMembers} />
                       </div>
                     </div>
-                  </div>
+                  </div>,
+                  document.fullscreenElement || document.body
                 )}
               </div>
             )}
@@ -2774,27 +2809,189 @@ export default function App() {
         )}
       </main>
 
+      {/* Complete Session Confirmation Modal */}
+      {showCompleteModal && ReactDOM.createPortal(
+        <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} onClick={() => setShowCompleteModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '400px', animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)', background: isDark ? '#1c1c1e' : '#ffffff', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', borderRadius: '22px', padding: '32px 28px 28px', textAlign: 'center' }}>
+            <div style={{ width: 60, height: 60, borderRadius: '18px', background: 'rgba(52,199,89,0.1)', border: '1px solid rgba(52,199,89,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: 'rgb(52,199,89)' }}>
+              <CheckCircle2 style={{ width: 28, height: 28 }} />
+            </div>
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8, color: isDark ? '#f4f4f5' : '#111827', letterSpacing: '-0.02em' }}>Complete Audit Session</h3>
+            <p style={{ fontSize: 13, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 24, lineHeight: 1.5 }}>
+              Are you sure you want to mark this audit as <strong>COMPLETED</strong>? No one except Admin or Developer will be able to make changes.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowCompleteModal(false)} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 600, borderRadius: 12, border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e4e4e7', color: isDark ? '#a1a1aa' : '#52525b', background: 'transparent', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => executeToggleStatus('Completed')} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 700, borderRadius: 12, border: 'none', color: '#ffffff', background: 'var(--accent)', cursor: 'pointer' }}>
+                Complete Audit
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Reopen Session Confirmation Modal */}
+      {showReopenModal && ReactDOM.createPortal(
+        <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} onClick={() => setShowReopenModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '400px', animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)', background: isDark ? '#1c1c1e' : '#ffffff', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', borderRadius: '22px', padding: '32px 28px 28px', textAlign: 'center' }}>
+            <div style={{ width: 60, height: 60, borderRadius: '18px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: 'rgb(239,68,68)' }}>
+              <Unlock style={{ width: 28, height: 28 }} />
+            </div>
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8, color: isDark ? '#f4f4f5' : '#111827', letterSpacing: '-0.02em' }}>Re-open Audit Session</h3>
+            <p style={{ fontSize: 13, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 24, lineHeight: 1.5 }}>
+              Are you sure you want to <strong>Re-open</strong> this audit session? This will unlock the session and allow active scanning and modifications again.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowReopenModal(false)} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 600, borderRadius: 12, border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e4e4e7', color: isDark ? '#a1a1aa' : '#52525b', background: 'transparent', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => executeToggleStatus('Active')} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 700, borderRadius: 12, border: 'none', color: '#ffffff', background: 'rgb(239,68,68)', cursor: 'pointer' }}>
+                Re-open Audit
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* Delete Session Confirmation Modal */}
       {deleteSessionTarget && ReactDOM.createPortal(
         <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} onClick={() => setDeleteSessionTarget(null)}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '440px', animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)', background: isDark ? '#1c1c1e' : '#ffffff', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', borderRadius: '22px', padding: '32px 28px 28px', textAlign: 'center' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '420px', animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)', background: isDark ? '#1c1c1e' : '#ffffff', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', borderRadius: '22px', padding: '32px 28px 28px', textAlign: 'center' }}>
             <div style={{ width: 60, height: 60, borderRadius: '18px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: 'rgb(239,68,68)' }}>
               <AlertTriangle style={{ width: 28, height: 28 }} />
             </div>
-            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4, color: isDark ? '#f4f4f5' : '#111827', letterSpacing: '-0.02em' }}>Delete Audit Session</h3>
-            <div style={{ display: 'inline-block', padding: '4px 12px', borderRadius: '9999px', fontSize: '13px', fontWeight: 700, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', marginBottom: 16 }}>{deleteSessionTarget.name}</div>
-            <p style={{ fontSize: 12, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 20, lineHeight: 1.6 }}>This will permanently delete this audit session, including all physical counts, audit trails, and product data. This action cannot be undone.</p>
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8, color: isDark ? '#f4f4f5' : '#111827', letterSpacing: '-0.02em' }}>Delete Audit Session</h3>
+            <p style={{ fontSize: 13, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 20, lineHeight: 1.5 }}>
+              Are you sure you want to permanently delete the audit session <strong>{deleteSessionTarget.name}</strong>? All scanned products, counts, and history will be lost forever.
+            </p>
             <div style={{ textAlign: 'left', marginBottom: 24 }}>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: isDark ? '#a1a1aa' : '#52525b', marginBottom: 6 }}>Type the audit name <strong style={{ color: '#ef4444' }}>{deleteSessionTarget.name}</strong> to confirm:</label>
-              <input type="text" value={deleteSessionInput} onChange={(e) => setDeleteSessionInput(e.target.value)} placeholder={deleteSessionTarget.name} style={{ width: '100%', padding: '10px 14px', fontSize: '13px', borderRadius: '10px', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #d4d4d8', background: isDark ? '#2c2c2e' : '#f9f9f9', color: isDark ? '#ffffff' : '#000000', outline: 'none' }} />
+              <label style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#a1a1aa' : '#4b5563', textTransform: 'uppercase', tracking: '0.05em', marginBottom: 6, display: 'block' }}>
+                To confirm, type the session name below:
+              </label>
+              <input
+                type="text"
+                value={deleteSessionInput}
+                onChange={(e) => setDeleteSessionInput(e.target.value)}
+                placeholder={deleteSessionTarget.name}
+                style={{
+                  width: '100%',
+                  padding: '11px 14px',
+                  fontSize: 13,
+                  borderRadius: 12,
+                  border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid #d1d5db',
+                  background: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
+                  color: isDark ? '#ffffff' : '#111827',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setDeleteSessionTarget(null)} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 600, borderRadius: 12, border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e4e4e7', color: isDark ? '#a1a1aa' : '#52525b', background: 'transparent', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={confirmDeleteSession} disabled={isDeletingSession || deleteSessionInput !== deleteSessionTarget.name} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 700, borderRadius: 12, border: 'none', color: '#ffffff', background: (isDeletingSession || deleteSessionInput !== deleteSessionTarget.name) ? (isDark ? 'rgba(239,68,68,0.25)' : 'rgba(239,68,68,0.45)') : 'linear-gradient(180deg, #f87171 0%, #dc2626 100%)', cursor: (isDeletingSession || deleteSessionInput !== deleteSessionTarget.name) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <Trash2 style={{ width: 14, height: 14 }} />
-                {isDeletingSession ? 'Deleting...' : 'Delete Session'}
+              <button onClick={() => setDeleteSessionTarget(null)} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 600, borderRadius: 12, border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e4e4e7', color: isDark ? '#a1a1aa' : '#52525b', background: 'transparent', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button
+                disabled={deleteSessionInput !== deleteSessionTarget.name || isDeletingSession}
+                onClick={confirmDeleteSession}
+                style={{
+                  flex: 1,
+                  padding: '11px 16px',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  borderRadius: 12,
+                  border: 'none',
+                  color: '#ffffff',
+                  background: (deleteSessionInput === deleteSessionTarget.name && !isDeletingSession) ? 'rgb(239,68,68)' : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'),
+                  cursor: (deleteSessionInput === deleteSessionTarget.name && !isDeletingSession) ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                {isDeletingSession ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Deleting...
+                  </>
+                ) : (
+                  'Delete Permanently'
+                )}
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && ReactDOM.createPortal(
+        <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} onClick={() => !isUploading && setShowImportModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '440px', animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)', background: isDark ? '#1c1c1e' : '#ffffff', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', borderRadius: '22px', padding: '32px 28px 28px', textAlign: 'center' }}>
+            <div style={{ width: 60, height: 60, borderRadius: '18px', background: 'rgba(0,122,255,0.1)', border: '1px solid rgba(0,122,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: '#007AFF' }}>
+              <UploadCloud style={{ width: 28, height: 28 }} />
+            </div>
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8, color: isDark ? '#f4f4f5' : '#111827', letterSpacing: '-0.02em' }}>Import Products</h3>
+            <p style={{ fontSize: 13, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 20, lineHeight: 1.5 }}>
+              Upload your Excel (.xlsx) or CSV file containing product stock data.
+            </p>
+            
+            {!isUploading && importProgress === 0 ? (
+              <>
+                <label style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  padding: '32px 16px', border: isDark ? '2px dashed rgba(255,255,255,0.15)' : '2px dashed rgba(0,0,0,0.12)',
+                  borderRadius: '16px', cursor: 'pointer', background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+                  transition: 'all 0.2s ease',
+                  marginBottom: pendingUploadFile ? 16 : 24
+                }}
+                onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#007AFF'; e.currentTarget.style.background = 'rgba(0,122,255,0.05)'; }}
+                onDragLeave={e => { e.preventDefault(); e.currentTarget.style.borderColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'; e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'; }}
+                onDrop={e => {
+                  e.preventDefault();
+                  e.currentTarget.style.borderColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
+                  e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)';
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    setPendingUploadFile(e.dataTransfer.files[0]);
+                  }
+                }}
+                >
+                  <UploadCloud style={{ width: 32, height: 32, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.3)', marginBottom: 12 }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: isDark ? '#e4e4e7' : '#3f3f46' }}>Click or drag file to this area</span>
+                  <span style={{ fontSize: 11, color: isDark ? '#71717a' : '#a1a1aa', marginTop: 4 }}>Support for a single or bulk upload. Strictly prohibit from uploading company data or other band files.</span>
+                  <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { if (e.target.files.length > 0) setPendingUploadFile(e.target.files[0]); }} />
+                </label>
+
+                {pendingUploadFile && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: isDark ? 'rgba(255,255,255,0.05)' : '#f4f4f5', borderRadius: '12px', marginBottom: 24, border: isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+                      <div style={{ background: '#007AFF', color: 'white', padding: 4, borderRadius: 6 }}><FileText style={{ width: 14, height: 14 }} /></div>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pendingUploadFile.name}</span>
+                    </div>
+                    <button onClick={() => setPendingUploadFile(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4 }}><X style={{ width: 14, height: 14 }} /></button>
+                  </div>
+                )}
+                
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => setShowImportModal(false)} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 600, borderRadius: 12, border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid #e4e4e7', color: isDark ? '#a1a1aa' : '#52525b', background: 'transparent', cursor: 'pointer' }}>Cancel</button>
+                  <button disabled={!pendingUploadFile} onClick={() => handleFileUpload(pendingUploadFile)} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 700, borderRadius: 12, border: 'none', color: '#ffffff', background: pendingUploadFile ? 'var(--accent)' : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'), cursor: pendingUploadFile ? 'pointer' : 'not-allowed' }}>
+                    Start Upload
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 10, paddingBottom: 10 }}>
+                <div style={{ fontSize: 40, fontWeight: 800, color: importProgress === 100 ? '#34C759' : 'var(--text-primary)', marginBottom: 20, fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
+                  {importProgress}%
+                </div>
+                <div style={{ width: '100%', height: 6, background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)', borderRadius: 99, overflow: 'hidden', marginBottom: 16 }}>
+                  <div style={{ height: '100%', width: `${importProgress}%`, background: importProgress === 100 ? '#34C759' : '#007AFF', borderRadius: 99, transition: 'width 0.3s ease-out, background 0.3s' }} />
+                </div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: importProgress === 100 ? '#34C759' : 'var(--text-secondary)' }}>
+                  {uploadStatus || 'Processing data...'}
+                </p>
+              </div>
+            )}
+            
           </div>
         </div>,
         document.body

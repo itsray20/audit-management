@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import GlassSelect from './GlassSelect';
 import {
   Plus, Trash2, Edit3, Shield, UserX, UserCheck, RefreshCw,
   User, Mail, Phone, MapPin, Calendar, ChevronDown, ChevronUp,
@@ -249,6 +250,9 @@ export default function TeamManagement({ isDark, currentUser }) {
   const [auditLogs, setAuditLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logSearchQuery, setLogSearchQuery] = useState('');
+  const [auditSearchQuery, setAuditSearchQuery] = useState('');
+  const [auditHospitalFilter, setAuditHospitalFilter] = useState('all');
+  const [auditStatusFilter, setAuditStatusFilter] = useState('all');
 
   const handleViewProfile = async (user) => {
     setSelectedProfileId(user.id);
@@ -256,6 +260,9 @@ export default function TeamManagement({ isDark, currentUser }) {
     setSelectedAuditSession(null);
     setAuditLogs([]);
     setLogSearchQuery('');
+    setAuditSearchQuery('');
+    setAuditHospitalFilter('all');
+    setAuditStatusFilter('all');
     setProfileLoading(true);
     try {
       const res = await axios.get(`/api/users/${user.id}/profile`, {
@@ -571,45 +578,167 @@ export default function TeamManagement({ isDark, currentUser }) {
 
             {/* Audit Logs and History section */}
             <div className="rounded-2xl p-6 border shadow-sm" style={{ background: isDark ? '#1c1c1e' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
-              {!selectedAuditSession ? (
-                <div className="space-y-4">
-                  <h4 className="text-xs font-black uppercase tracking-wider flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
-                    <ClipboardList className="h-4 w-4" style={{ color: 'var(--accent)' }} />
-                    Worked Audits
-                    <span className="ml-auto text-[10px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: 'var(--accent-light)', color: 'var(--accent)' }}>
-                      {profileDetails.audit_history?.length || 0}
-                    </span>
-                  </h4>
+              {!selectedAuditSession ? (() => {
+                const auditHistory = profileDetails?.audit_history || [];
+                const totalAudits = auditHistory.length;
+                const activeCount = auditHistory.filter(a => a.status === 'Active').length;
+                const completedCount = auditHistory.filter(a => a.status === 'Completed').length;
+                const uniqueHospitals = Array.from(new Set(auditHistory.map(a => a.hospital_name || 'Generic').filter(Boolean)));
+                const hospitalCount = uniqueHospitals.length;
 
-                  {!profileDetails.audit_history || profileDetails.audit_history.length === 0 ? (
-                    <div className="text-center py-16 border border-dashed rounded-2xl" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
-                      <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>This user has not worked on any audits yet.</p>
+                const filteredAudits = auditHistory.filter(a => {
+                  if (auditSearchQuery.trim()) {
+                    const q = auditSearchQuery.toLowerCase();
+                    const nameMatch = (a.name || '').toLowerCase().includes(q);
+                    const hospMatch = (a.hospital_name || '').toLowerCase().includes(q);
+                    if (!nameMatch && !hospMatch) return false;
+                  }
+                  if (auditHospitalFilter !== 'all') {
+                    const hosp = a.hospital_name || 'Generic';
+                    if (hosp !== auditHospitalFilter) return false;
+                  }
+                  if (auditStatusFilter !== 'all') {
+                    if (a.status !== auditStatusFilter) return false;
+                  }
+                  return true;
+                });
+
+                return (
+                  <div className="space-y-5">
+                    {/* Header: My Work */}
+                    <div className="flex items-center gap-2">
+                      <ClipboardList className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+                      <h4 className="text-xs font-black uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+                        My Work
+                      </h4>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--accent-light)', color: 'var(--accent)' }}>
+                        {totalAudits} audits
+                      </span>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 animate-fade-in">
-                      {profileDetails.audit_history.map(audit => (
-                        <div
-                          key={audit.id}
-                          onClick={() => handleViewAuditLogs(audit)}
-                          className="flex items-center justify-between p-5 rounded-2xl cursor-pointer hover:border-blue-500 hover:shadow-lg transition-all border group"
-                          style={{ background: isDark ? '#121214' : '#f9f9fb', borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
-                        >
-                          <div className="space-y-1 min-w-0 flex-1">
-                            <div className="text-xs font-black truncate group-hover:text-blue-500 transition-colors" style={{ color: 'var(--text-primary)' }}>{audit.name}</div>
-                            <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>🏥 {audit.hospital_name || 'Generic'} · 📅 {audit.audit_date}</p>
+
+                    {/* Stats Grid */}
+                    {totalAudits > 0 && (
+                      <div className="grid grid-cols-3 gap-4">
+                        {/* Active Card */}
+                        <div className="rounded-2xl p-4 flex items-center gap-3.5 border" style={{ background: isDark ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.03)', borderColor: isDark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.12)' }}>
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-500/10 text-blue-500">
+                            <Activity className="h-5 w-5 animate-pulse" />
                           </div>
-                          <div className="flex items-center gap-1.5 ml-2">
-                            <span className={`px-2 py-0.5 text-[9px] font-bold rounded-lg ${audit.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>
-                              {audit.status}
-                            </span>
-                            <ChevronRight className="h-4 w-4 text-zinc-400 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                          <div>
+                            <div className="text-base font-black text-zinc-900 dark:text-zinc-50">{activeCount}</div>
+                            <div className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Active</div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
+
+                        {/* Completed Card */}
+                        <div className="rounded-2xl p-4 flex items-center gap-3.5 border" style={{ background: isDark ? 'rgba(16,185,129,0.06)' : 'rgba(16,185,129,0.03)', borderColor: isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.12)' }}>
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-500/10 text-emerald-500">
+                            <Check className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className="text-base font-black text-zinc-900 dark:text-zinc-50">{completedCount}</div>
+                            <div className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Completed</div>
+                          </div>
+                        </div>
+
+                        {/* Hospitals Card */}
+                        <div className="rounded-2xl p-4 flex items-center gap-3.5 border" style={{ background: isDark ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.03)', borderColor: isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.12)' }}>
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-amber-500/10 text-amber-500">
+                            <Building2 className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className="text-base font-black text-zinc-900 dark:text-zinc-50">{hospitalCount}</div>
+                            <div className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Hospitals</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Filters & Search Row */}
+                    {totalAudits > 0 && (
+                      <div className="space-y-3">
+                        <div className="flex gap-3 w-full">
+                          {/* Search */}
+                          <div className="relative flex-1">
+                            <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                              <Search className="h-3.5 w-3.5 text-zinc-400" />
+                            </span>
+                            <input
+                              type="text"
+                              placeholder="Search by audit name..."
+                              value={auditSearchQuery}
+                              onChange={(e) => setAuditSearchQuery(e.target.value)}
+                              className="w-full text-xs pl-9 pr-3.5 py-2.5 rounded-xl border focus:outline-none"
+                              style={{ background: isDark ? '#121214' : '#f9f9fb', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', color: 'var(--text-primary)' }}
+                            />
+                          </div>
+
+                          {/* Hospital Dropdown */}
+                          <GlassSelect
+                            value={auditHospitalFilter}
+                            onChange={setAuditHospitalFilter}
+                            options={[
+                              { value: 'all', label: 'All Hospitals', icon: '🏥' },
+                              ...uniqueHospitals.map(h => ({ value: h, label: h }))
+                            ]}
+                            className="h-[38px] flex items-center"
+                          />
+                        </div>
+
+                        {/* Status segmented tab */}
+                        <div className="flex rounded-xl p-1 border gap-1 self-start" style={{ width: 'fit-content', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
+                          {['all', 'Active', 'Completed'].map((status) => (
+                            <button
+                              key={status}
+                              onClick={() => setAuditStatusFilter(status)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border-none ${
+                                auditStatusFilter === status
+                                  ? (isDark ? 'bg-zinc-800 text-white shadow-sm' : 'bg-white text-zinc-800 shadow-sm')
+                                  : 'text-zinc-450 dark:text-zinc-500 hover:text-zinc-650'
+                              }`}
+                            >
+                              {status === 'all' ? 'All' : status}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Audits Grid */}
+                    {totalAudits === 0 ? (
+                      <div className="text-center py-16 border border-dashed rounded-2xl" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
+                        <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>This user has not worked on any audits yet.</p>
+                      </div>
+                    ) : filteredAudits.length === 0 ? (
+                      <div className="text-center py-12 border border-dashed rounded-2xl" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
+                        <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>No audits match your filters.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 animate-fade-in">
+                        {filteredAudits.map(audit => (
+                          <div
+                            key={audit.id}
+                            onClick={() => handleViewAuditLogs(audit)}
+                            className="flex items-center justify-between p-5 rounded-2xl cursor-pointer hover:border-blue-500 hover:shadow-lg transition-all border group"
+                            style={{ background: isDark ? '#121214' : '#f9f9fb', borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
+                          >
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <div className="text-xs font-black truncate group-hover:text-blue-500 transition-colors" style={{ color: 'var(--text-primary)' }}>{audit.name}</div>
+                              <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>🏥 {audit.hospital_name || 'Generic'} · 📅 {audit.audit_date}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 ml-2">
+                              <span className={`px-2 py-0.5 text-[9px] font-bold rounded-lg ${audit.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>
+                                {audit.status}
+                              </span>
+                              <ChevronRight className="h-4 w-4 text-zinc-400 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : (
                 <div className="space-y-5 animate-fade-in">
                   {/* Audit Header */}
                   <div className="flex items-center justify-between pb-3" style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>

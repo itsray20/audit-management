@@ -131,22 +131,29 @@ const generateExcelBuffer = async (sessionId) => {
   const itemIds = (items || []).map(i => i.id);
   const allCounts = await fetchCountsInChunks(itemIds);
 
-  // 3. Build real display-name map for auditor slots
-  const { data: users } = await supabase.from('users').select('name, role');
-  const SLOTS = ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
-  const slotToDisplay = {};
-  (users || []).forEach(u => {
-    const parts = (u.name || '').split('|');
-    const displayName = parts[0] || u.name;
-    const slot = parts[2] || (u.role === 'Admin' ? 'Admin' : null);
-    if (slot && SLOTS.includes(slot)) {
-      slotToDisplay[slot] = displayName;
-    }
-  });
-  // Fallback to slot name if no user configured
-  SLOTS.forEach(slot => {
-    if (!slotToDisplay[slot]) slotToDisplay[slot] = slot;
-  });
+  // 3. Build dynamic auditor columns list from database
+  const { data: auditMembers } = await supabase
+    .from('audit_members')
+    .select('*')
+    .eq('audit_session_id', sessionId);
+
+  const userIds = (auditMembers || []).map(m => m.user_id);
+  const userMap = {};
+  if (userIds.length > 0) {
+    const { data: usersData } = await supabase.from('users').select('*').in('id', userIds);
+    (usersData || []).forEach(u => {
+      const parts = (u.name || '').split('|');
+      const cleanName = u.display_name || parts[0] || u.username;
+      userMap[u.id] = cleanName;
+    });
+  }
+
+  const columns = (auditMembers || []).map(m => ({
+    id: String(m.user_id),
+    name: userMap[m.user_id] || `User ${m.user_id}`,
+    status: m.status,
+    is_virtual: false
+  }));
 
   // Group counts by item ID
   const countsByItem = {};
@@ -155,12 +162,33 @@ const generateExcelBuffer = async (sessionId) => {
     countsByItem[c.item_id].push(c);
   });
 
-  // Get audit members dynamically
-  const { data: auditMembers } = await supabase
-    .from('audit_members').select('*').eq('audit_session_id', sessionId);
-  const memberIds = (auditMembers || []).map(m => String(m.user_id));
+  // Append virtual/imported counts
   const countAuditors = Array.from(new Set((allCounts || []).map(c => String(c.auditor_name))));
-  const ALLOWED_AUDITORS = Array.from(new Set(['Admin', 'User1', 'User2', 'User3', 'User4', 'User5', ...memberIds, ...countAuditors]));
+  const existingColumnIds = new Set(columns.map(c => c.id));
+  
+  countAuditors.forEach(auditorName => {
+    if (auditorName.startsWith('Physical Quantity')) return;
+    if (!existingColumnIds.has(auditorName)) {
+      columns.push({
+        id: auditorName,
+        name: auditorName,
+        status: 'active',
+        is_virtual: true
+      });
+    }
+  });
+
+  // Sort columns: real members first, then virtual columns
+  columns.sort((a, b) => {
+    if (a.is_virtual && !b.is_virtual) return 1;
+    if (!a.is_virtual && b.is_virtual) return -1;
+    if (a.is_virtual && b.is_virtual) {
+      return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
+    }
+    return Number(a.id || 0) - Number(b.id || 0);
+  });
+
+  const ALLOWED_AUDITORS = columns.map(c => c.id);
 
   // 4. Calculate everything
   const processedItems = (items || []).map(item => {
@@ -358,9 +386,9 @@ const generateExcelBuffer = async (sessionId) => {
     { header: 'Selling rate', key: 'sellingRate', width: 14 },
     { header: 'Batch Available Quantity', key: 'availQty', width: 24 },
   ];
-  // Add columns for Srikant, Sathya, Santosh, Naveen, Shreeyash
-  SLOTS.forEach(slot => {
-    stdColumns.push({ header: slotToDisplay[slot], key: slot, width: 14 });
+  // Add columns dynamically for each auditor
+  columns.forEach(col => {
+    stdColumns.push({ header: col.name, key: `col_${col.id}`, width: 14 });
   });
   stdColumns.push(
     { header: 'Total', key: 'total', width: 10 },
@@ -379,10 +407,10 @@ const generateExcelBuffer = async (sessionId) => {
       sellingRate: item.unit_mrp,
       availQty: item.system_qty,
     };
-    SLOTS.forEach(slot => {
+    columns.forEach(col => {
       const itemCounts = countsByItem[item.id] || [];
-      const match = itemCounts.find(c => c.auditor_name === slot);
-      row[slot] = match ? Number(match.physical_count) : '';
+      const match = itemCounts.find(c => String(c.auditor_name) === String(col.id));
+      row[`col_${col.id}`] = match ? Number(match.physical_count) : '';
     });
     row.total = item.totalPhysical;
     row.difference = item.difference;
@@ -400,7 +428,7 @@ const generateExcelBuffer = async (sessionId) => {
     sellingRate: '',
     availQty: processedItems.reduce((s, i) => s + (Number(i.system_qty) || 0), 0),
   };
-  SLOTS.forEach(slot => { totalFooter[slot] = ''; });
+  columns.forEach(col => { totalFooter[`col_${col.id}`] = ''; });
   totalFooter.total = processedItems.reduce((s, i) => s + (i.totalPhysical || 0), 0);
   totalFooter.difference = processedItems.reduce((s, i) => s + (i.difference || 0), 0);
   totalFooter.differenceValue = excessVal + shortageVal + extraFoundVal + otVal;

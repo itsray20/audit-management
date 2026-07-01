@@ -706,11 +706,28 @@ const enforceWritePermission = async (req, res, next) => {
 
 app.get('/api/audits', async (req, res) => {
   try {
-    const { data: sessions, error: sErr } = await supabase
+    const userRole = req.headers['x-user-role'];
+    const userId = req.headers['x-user-id'];
+    console.log('[DEBUG] /api/audits called with Role:', userRole, 'ID:', userId);
+
+    const { data: allSessions, error: sErr } = await supabase
       .from('audit_sessions')
       .select('*')
       .order('created_at', { ascending: false });
     if (sErr) throw sErr;
+
+    let sessions = allSessions;
+    if (userRole === 'Employee' && userId) {
+      const { data: memberData, error: mErr } = await supabase
+        .from('audit_members')
+        .select('audit_session_id')
+        .eq('user_id', parseInt(userId))
+        .eq('status', 'active');
+      if (mErr) throw mErr;
+
+      const allowedSessionIds = new Set((memberData || []).map(m => m.audit_session_id));
+      sessions = sessions.filter(s => allowedSessionIds.has(s.id));
+    }
 
     const { data: items, error: iErr } = await supabase
       .from('items')
@@ -1265,7 +1282,7 @@ app.get('/api/audits/:id/items', async (req, res) => {
       locations = [...new Set((itemsList || []).map(i => i.location).filter(Boolean))].sort();
       stores = [...new Set((itemsList || []).map(i => i.store_name).filter(Boolean))].sort();
 
-      sessionCache.set(cacheKey, { processedList, suppliers, locations, stores });
+      sessionCache.set(cacheKey, { processedList, suppliers, locations, stores, ALLOWED_AUDITORS, auditDate: session.audit_date });
     }
 
     // Apply filtering in memory
@@ -1363,6 +1380,93 @@ app.get('/api/audits/:id/items', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────
+// Cache Updater (Updates cached items in place to avoid full rebuilds)
+// ─────────────────────────────────────────────────────────────────
+const updateCacheInPlace = (sessionId, itemId, auditorName, physicalCount, expiryCheck, remarks, isDelete) => {
+  const cacheKey = String(sessionId);
+  if (!sessionCache.has(cacheKey)) return;
+
+  const cached = sessionCache.get(cacheKey);
+  const cachedItem = cached.processedList.find(i => Number(i.id) === Number(itemId));
+  if (!cachedItem) {
+    sessionCache.delete(cacheKey);
+    return;
+  }
+
+  if (!cachedItem.auditor_counts) cachedItem.auditor_counts = [];
+
+  if (isDelete) {
+    cachedItem.auditor_counts = cachedItem.auditor_counts.filter(
+      c => String(c.auditor_name) !== String(auditorName)
+    );
+  } else {
+    const existingC = cachedItem.auditor_counts.find(
+      c => String(c.auditor_name) === String(auditorName)
+    );
+    if (existingC) {
+      existingC.physical_count = physicalCount !== null ? parseInt(physicalCount) : null;
+      existingC.expiry_check = expiryCheck ? true : false;
+      existingC.remarks = remarks || '';
+      existingC.updated_at = new Date().toISOString();
+    } else {
+      cachedItem.auditor_counts.push({
+        item_id: parseInt(itemId),
+        auditor_name: auditorName,
+        physical_count: physicalCount !== null ? parseInt(physicalCount) : null,
+        expiry_check: expiryCheck ? true : false,
+        remarks: remarks || '',
+        updated_at: new Date().toISOString()
+      });
+    }
+  }
+
+  const ALLOWED_AUDITORS = cached.ALLOWED_AUDITORS || [];
+  const auditorTotal = cachedItem.auditor_counts.reduce((sum, c) => {
+    if (ALLOWED_AUDITORS.includes(String(c.auditor_name))) return sum + (c.physical_count || 0);
+    return sum;
+  }, 0);
+  
+  const hasExpiredCheck = cachedItem.auditor_counts.some(c => c.expiry_check === true || c.expiry_check === 1);
+  const totalPhysical = auditorTotal + Number(cachedItem.manual_add || 0) + Number(cachedItem.manual_recheck || 0);
+
+  const hasValidCount = cachedItem.auditor_counts.some(c => ALLOWED_AUDITORS.includes(String(c.auditor_name)));
+  const isCounted = hasValidCount || Number(cachedItem.manual_add || 0) !== 0 || Number(cachedItem.manual_recheck || 0) !== 0;
+
+  const difference = isCounted ? (totalPhysical - (cachedItem.system_qty || 0)) : 0;
+  const differenceValue = difference * (cachedItem.unit_purchase_rate || 0);
+
+  let expiryStatus = 'GOOD STOCK';
+  if (cachedItem.expiry_date && cached.auditDate) {
+    const itemDate = new Date(cachedItem.expiry_date);
+    itemDate.setHours(0, 0, 0, 0);
+    const refDate = new Date(cached.auditDate);
+    refDate.setHours(0, 0, 0, 0);
+    const ninetyDays = new Date(refDate);
+    ninetyDays.setDate(refDate.getDate() + 90);
+    if (itemDate < refDate) expiryStatus = 'EXPIRED';
+    else if (itemDate <= ninetyDays) expiryStatus = 'NEAR EXPIRY';
+    else expiryStatus = 'GOOD STOCK';
+  }
+  if (hasExpiredCheck) expiryStatus = 'EXPIRED';
+
+  let category = 'Not Counted';
+  if (isCounted) {
+    if (cachedItem.system_qty === 0 && totalPhysical > 0) category = 'Extra Found';
+    else if (expiryStatus === 'EXPIRED' && totalPhysical > 0) category = 'Expired Stock';
+    else if (cachedItem.notes && cachedItem.notes.startsWith('OT')) category = 'Other';
+    else if (difference > 0) category = 'Excess';
+    else if (difference < 0) category = 'Shortage';
+    else category = 'Perfect Match';
+  }
+
+  cachedItem.totalPhysical = totalPhysical;
+  cachedItem.difference = difference;
+  cachedItem.differenceValue = differenceValue;
+  cachedItem.expiryStatus = expiryStatus;
+  cachedItem.category = category;
+};
+
+// ─────────────────────────────────────────────────────────────────
 // COUNT UPDATE HANDLER (supports dynamic user_id or legacy slot)
 // ─────────────────────────────────────────────────────────────────
 const handleCountUpdate = async (req, res) => {
@@ -1421,8 +1525,8 @@ const handleCountUpdate = async (req, res) => {
         .eq('item_id', parseInt(id)).eq('auditor_name', auditor_name);
       if (delErr) throw delErr;
 
-      // FIX 1: Invalidate cache so next read recomputes fresh categories
-      clearSessionCache(item.audit_session_id);
+      // Update cache in place to prevent database polling bottleneck
+      updateCacheInPlace(item.audit_session_id, id, auditor_name, null, expiry_check, remarks, true);
 
       const oldVal = oldCount ? `${oldCount.physical_count}` : 'None';
       if (oldVal !== 'None') {
@@ -1447,8 +1551,8 @@ const handleCountUpdate = async (req, res) => {
       }], { onConflict: 'item_id,auditor_name' });
       if (upsertErr) throw upsertErr;
 
-      // FIX 1: Invalidate cache so next read recomputes fresh categories
-      clearSessionCache(item.audit_session_id);
+      // Update cache in place to prevent database polling bottleneck
+      updateCacheInPlace(item.audit_session_id, id, auditor_name, physical_count, expiry_check, remarks, false);
 
       const oldVal = oldCount ? `${oldCount.physical_count}` : 'None';
       const newVal = `${physical_count}`;
@@ -1770,7 +1874,7 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────
 app.get('/api/audits/:id/export', async (req, res) => {
   const { id } = req.params;
-  const requesterRole = req.headers['x-user-role'];
+  const requesterRole = req.headers['x-user-role'] || req.query.role;
   if (!isUpperTier(requesterRole)) {
     return res.status(403).json({ error: 'Export access restricted.' });
   }
@@ -1786,7 +1890,7 @@ app.get('/api/audits/:id/export', async (req, res) => {
 
 app.get('/api/audits/:id/export/word', async (req, res) => {
   const { id } = req.params;
-  const requesterRole = req.headers['x-user-role'];
+  const requesterRole = req.headers['x-user-role'] || req.query.role;
   if (!isUpperTier(requesterRole)) {
     return res.status(403).json({ error: 'Export access restricted.' });
   }

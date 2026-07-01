@@ -149,7 +149,7 @@ export default function GlassSelect({
             );
           })}
         </div>,
-        document.body,
+        document.fullscreenElement || document.body,
       )}
     </div>
   );
