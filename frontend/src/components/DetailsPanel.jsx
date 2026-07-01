@@ -385,7 +385,7 @@ export default function DetailsPanel({
                     disabled={auditIsLocked}
                     className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-medium shadow-sm transition-all"
                   >
-                    {auditMembers.map(m => {
+                    {auditMembers.filter(m => !m.is_virtual).map(m => {
                       const uid = String(m.user_id);
                       return (
                         <option key={uid} value={uid}>
