@@ -1118,14 +1118,13 @@ app.get('/api/audits/:id/items', async (req, res) => {
 
       // Apply category filter
       if (filter) {
-        if (filter === 'EXPIRED') filteredList = filteredList.filter(i => i.expiryStatus === 'EXPIRED');
+        if (filter === 'EXPIRED' || filter === 'Expired Stock') filteredList = filteredList.filter(i => i.expiryStatus === 'EXPIRED');
         else if (filter === 'NEAR EXPIRY') filteredList = filteredList.filter(i => i.expiryStatus === 'NEAR EXPIRY');
         else if (filter === 'GOOD STOCK') filteredList = filteredList.filter(i => i.expiryStatus === 'GOOD STOCK');
         else if (filter === 'Shortage') filteredList = filteredList.filter(i => i.category === 'Shortage');
         else if (filter === 'Excess') filteredList = filteredList.filter(i => i.category === 'Excess');
         else if (filter === 'Perfect Match') filteredList = filteredList.filter(i => i.category === 'Perfect Match');
         else if (filter === 'Extra Found') filteredList = filteredList.filter(i => i.category === 'Extra Found');
-        else if (filter === 'Expired Stock') filteredList = filteredList.filter(i => i.category === 'Expired Stock');
         else if (filter === 'Not Counted') filteredList = filteredList.filter(i => i.auditor_counts.length === 0);
       }
 
@@ -1307,14 +1306,13 @@ app.get('/api/audits/:id/items', async (req, res) => {
 
     // Apply category filter
     if (filter) {
-      if (filter === 'EXPIRED') filteredList = filteredList.filter(i => i.expiryStatus === 'EXPIRED');
+      if (filter === 'EXPIRED' || filter === 'Expired Stock') filteredList = filteredList.filter(i => i.expiryStatus === 'EXPIRED');
       else if (filter === 'NEAR EXPIRY') filteredList = filteredList.filter(i => i.expiryStatus === 'NEAR EXPIRY');
       else if (filter === 'GOOD STOCK') filteredList = filteredList.filter(i => i.expiryStatus === 'GOOD STOCK');
       else if (filter === 'Shortage') filteredList = filteredList.filter(i => i.category === 'Shortage');
       else if (filter === 'Excess') filteredList = filteredList.filter(i => i.category === 'Excess');
       else if (filter === 'Perfect Match') filteredList = filteredList.filter(i => i.category === 'Perfect Match');
       else if (filter === 'Extra Found') filteredList = filteredList.filter(i => i.category === 'Extra Found');
-      else if (filter === 'Expired Stock') filteredList = filteredList.filter(i => i.category === 'Expired Stock');
       else if (filter === 'Not Counted') filteredList = filteredList.filter(i => i.auditor_counts.length === 0);
     }
 
