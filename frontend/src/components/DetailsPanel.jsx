@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { X, Check, History, Save, Trash2, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
+import GlassSelect from './GlassSelect';
 
 
 export default function DetailsPanel({
@@ -379,21 +380,23 @@ export default function DetailsPanel({
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Target Auditor Column</label>
                 {isAdmin ? (
-                  <select
-                    value={selectedAuditor}
-                    onChange={(e) => handleAuditorChange(e.target.value)}
-                    disabled={auditIsLocked}
-                    className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-medium shadow-sm transition-all"
-                  >
-                    {auditMembers.filter(m => !m.is_virtual).map(m => {
-                      const uid = String(m.user_id);
-                      return (
-                        <option key={uid} value={uid}>
-                          {m.user_name} {m.status !== 'active' ? `(${m.status})` : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  <div className="w-full relative z-50">
+                    <GlassSelect
+                      value={selectedAuditor}
+                      onChange={(val) => handleAuditorChange(val)}
+                      disabled={auditIsLocked}
+                      placeholder="Select Auditor"
+                      className="w-full"
+                      options={auditMembers.filter(m => !m.is_virtual).map(m => {
+                        const uid = String(m.user_id);
+                        return {
+                          value: uid,
+                          label: `${m.user_name} ${m.status !== 'active' ? `(${m.status})` : ''}`,
+                          dot: m.status === 'active' ? '#22c55e' : (m.status === 'removed' ? '#ef4444' : '#f59e0b')
+                        };
+                      })}
+                    />
+                  </div>
                 ) : (
                   <div className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100/50 dark:bg-zinc-800/50 border border-zinc-200/50 dark:border-zinc-700/50">
                     {currentUser.name || currentUser.role}
