@@ -101,6 +101,7 @@ export default function App() {
   const [uploadFile, setUploadFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [uploadError, setUploadError] = useState(null);
 
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem('activeTab');
@@ -588,6 +589,7 @@ export default function App() {
     if (!fileToUpload || !activeSession) return;
     setIsUploading(true);
     setUploadStatus('Uploading file...');
+    setUploadError(null);
     
     // Start progress simulation
     let progress = 0;
@@ -616,6 +618,7 @@ export default function App() {
         setIsUploading(false);
         setImportProgress(0);
         setUploadStatus('');
+        setUploadError(null);
         fetchDashboardMetrics();
         fetchItems();
         fetchSessions();
@@ -624,7 +627,9 @@ export default function App() {
       clearInterval(interval);
       setIsUploading(false);
       setImportProgress(0);
-      setUploadStatus(err.response?.data?.error || 'Upload failed.');
+      const errMsg = err.response?.data?.error || err.message || 'Upload failed.';
+      setUploadError(errMsg);
+      setUploadStatus(errMsg);
     }
   };
 
@@ -2935,7 +2940,7 @@ export default function App() {
               Upload your Excel (.xlsx) or CSV file containing product stock data.
             </p>
             
-            {!isUploading && importProgress === 0 ? (
+            {!isUploading && !uploadError && importProgress === 0 ? (
               <>
                 <label style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -2978,6 +2983,21 @@ export default function App() {
                   </button>
                 </div>
               </>
+            ) : uploadError ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 10 }}>
+                <div style={{ width: 56, height: 56, borderRadius: '16px', background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: '#FF3B30' }}>
+                  <AlertTriangle style={{ width: 24, height: 24 }} />
+                </div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: '#FF3B30', letterSpacing: '-0.02em' }}>Upload Failed</h3>
+                <p style={{ fontSize: 13, color: isDark ? '#e4e4e7' : '#3f3f46', marginBottom: 24, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                  {uploadError}
+                </p>
+                <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+                  <button onClick={() => { setUploadError(null); setUploadStatus(''); setPendingUploadFile(null); }} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 700, borderRadius: 12, border: 'none', color: '#ffffff', background: 'var(--accent)', cursor: 'pointer' }}>
+                    Try Again
+                  </button>
+                </div>
+              </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 10, paddingBottom: 10 }}>
                 <div style={{ fontSize: 40, fontWeight: 800, color: importProgress === 100 ? '#34C759' : 'var(--text-primary)', marginBottom: 20, fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
