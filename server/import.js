@@ -63,17 +63,70 @@ const findMappedColumn = (header, mapping) => {
   return null;
 };
 
-// Check if a row represents a summary/total row
+// Recalculate range for a sheet manually to bypass stale/broken !ref metadata from ERP systems
+const updateSheetRange = (sheet) => {
+  if (!sheet) return;
+  let maxRow = 0;
+  let maxCol = 0;
+  const rangeRegex = /^([A-Z]+)([0-9]+)$/;
+
+  const decodeCol = (key) => {
+    let col = 0;
+    for (let i = 0; i < key.length; i++) {
+      col = col * 26 + (key.charCodeAt(i) - 64);
+    }
+    return col;
+  };
+
+  const decodeRow = (key) => parseInt(key, 10);
+
+  for (const key of Object.keys(sheet)) {
+    if (key[0] === '!') continue;
+    const match = key.match(rangeRegex);
+    if (match) {
+      const colStr = match[1];
+      const rowStr = match[2];
+      const row = decodeRow(rowStr);
+      const col = decodeCol(colStr);
+      if (row > maxRow) maxRow = row;
+      if (col > maxCol) maxCol = col;
+    }
+  }
+
+  const encodeCol = (col) => {
+    let temp = col;
+    let letter = '';
+    while (temp > 0) {
+      let t = (temp - 1) % 26;
+      letter = String.fromCharCode(65 + t) + letter;
+      temp = Math.floor((temp - t) / 26);
+    }
+    return letter;
+  };
+
+  if (maxRow > 0 && maxCol > 0) {
+    sheet['!ref'] = `A1:${encodeCol(maxCol)}${maxRow}`;
+  }
+};
+
+// Check if a row represents a summary/total row using precise word checks
 const isSummaryRow = (row, headerMap) => {
-  // If item name is empty or looks like total/summary
-  const nameVal = cleanString(row[headerMap.item_name || '']);
-  if (!nameVal || nameVal.toLowerCase().includes('total') || nameVal.toLowerCase().includes('summary')) {
+  const nameVal = cleanString(row[headerMap.item_name || '']).toLowerCase();
+  if (!nameVal) return true; // Empty item name means empty/invalid row
+
+  const exactSummaryTerms = ['total', 'grand total', 'sub total', 'totals', 'summary', 'grand-total', 'sub-total'];
+  
+  // Only skip if the field IS a summary term or starts with it followed by a space
+  if (exactSummaryTerms.includes(nameVal) || nameVal.startsWith('total ') || nameVal.startsWith('grand total ')) {
     return true;
   }
-  // Check if first column has total
+
   const firstKey = Object.keys(row)[0];
-  if (firstKey && cleanString(row[firstKey]).toLowerCase().includes('total')) {
-    return true;
+  if (firstKey) {
+    const firstVal = cleanString(row[firstKey]).toLowerCase();
+    if (exactSummaryTerms.includes(firstVal) || firstVal.startsWith('total ') || firstVal.startsWith('grand total ')) {
+      return true;
+    }
   }
   return false;
 };
@@ -112,6 +165,7 @@ const importExcel = async (auditSessionId, filePath) => {
   let expSheetName = sheetNames.find(s => ['exp', 'expired', 'expired stock'].includes(s.toLowerCase()));
 
   const mainSheet = workbook.Sheets[mainSheetName];
+  updateSheetRange(mainSheet); // Recalculate range before reading
   const mainData = xlsx.utils.sheet_to_json(mainSheet, { defval: '' });
   
   if (mainData.length === 0) {
@@ -344,6 +398,7 @@ const importExcel = async (auditSessionId, filePath) => {
   // Import Extra Found / NE sheet if present
   if (extraSheetName) {
     const extraSheet = workbook.Sheets[extraSheetName];
+    updateSheetRange(extraSheet);
     const extraData = xlsx.utils.sheet_to_json(extraSheet, { defval: '' });
     const extraHeaderMap = {};
     if (extraData.length > 0) {
@@ -424,6 +479,7 @@ const importExcel = async (auditSessionId, filePath) => {
   // Import OT (Other) sheet if present
   if (otSheetName) {
     const otSheet = workbook.Sheets[otSheetName];
+    updateSheetRange(otSheet);
     const otData = xlsx.utils.sheet_to_json(otSheet, { defval: '' });
     if (otData.length > 0) {
       console.log('Importing OT (Other) sheet items...');
@@ -434,6 +490,7 @@ const importExcel = async (auditSessionId, filePath) => {
   // Import Expired sheet if present
   if (expSheetName) {
     const expSheet = workbook.Sheets[expSheetName];
+    updateSheetRange(expSheet);
     const expData = xlsx.utils.sheet_to_json(expSheet, { defval: '' });
     if (expData.length > 0) {
       console.log('Importing Expired sheet items...');
