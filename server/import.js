@@ -270,7 +270,7 @@ const importExcel = async (auditSessionId, filePath) => {
 
     // Batch insert items in chunks to avoid payload limits
     const insertedItems = [];
-    const chunkSize = 150;
+    const chunkSize = 1000;
     for (let i = 0; i < itemsToInsert.length; i += chunkSize) {
       const chunk = itemsToInsert.slice(i, i + chunkSize);
       const { data: chunkResult, error: insertErr } = await supabase
@@ -436,7 +436,7 @@ const importExcel = async (auditSessionId, filePath) => {
 
       // Batch insert items in chunks
       const insertedItems = [];
-      const chunkSize = 150;
+      const chunkSize = 1000;
       for (let i = 0; i < extraItems.length; i += chunkSize) {
         const chunk = extraItems.slice(i, i + chunkSize);
         const { data: chunkResult, error: insErr } = await supabase
@@ -519,7 +519,7 @@ const importExcel = async (auditSessionId, filePath) => {
 
       // Batch insert items in chunks
       const insertedItems = [];
-      const chunkSize = 150;
+      const chunkSize = 1000;
       for (let i = 0; i < expItems.length; i += chunkSize) {
         const chunk = expItems.slice(i, i + chunkSize);
         const { data: chunkResult, error: expInsErr } = await supabase
