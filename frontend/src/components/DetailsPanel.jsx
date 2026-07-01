@@ -393,12 +393,6 @@ export default function DetailsPanel({
                         </option>
                       );
                     })}
-                    {/* Plus legacy slots if present */}
-                    {['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'].map(slot => (
-                      <option key={slot} value={slot}>
-                        {roleNamesMap[slot] || slot}
-                      </option>
-                    ))}
                   </select>
                 ) : (
                   <div className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100/50 dark:bg-zinc-800/50 border border-zinc-200/50 dark:border-zinc-700/50">
