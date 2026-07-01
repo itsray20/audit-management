@@ -102,7 +102,8 @@ export default function GlassSelect({
         <span style={{
           flex: 1, minWidth: 0, overflow: 'hidden',
           textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          maxWidth: compact ? 140 : 220,
+          maxWidth: fullWidth ? 'none' : (compact ? 140 : 220),
+          textAlign: 'left'
         }}>
           {label}
         </span>
