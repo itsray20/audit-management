@@ -910,7 +910,7 @@ app.get('/api/audits/:id/members', async (req, res) => {
       ...enriched.map(m => String(m.username).toLowerCase())
     ]);
 
-    const LEGACY_SLOTS = ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
+    
 
     countAuditors.forEach(auditorName => {
       const lowerName = auditorName.toLowerCase();
@@ -921,7 +921,7 @@ app.get('/api/audits/:id/members', async (req, res) => {
           user_id: auditorName,
           status: 'active',
           user_name: auditorName,
-          user_role: LEGACY_SLOTS.includes(auditorName) ? 'Legacy Slot' : 'Imported',
+          user_role: 'Imported',
           global_status: 'active',
           is_online: false,
           is_virtual: true
@@ -1207,8 +1207,8 @@ app.get('/api/audits/:id/items', async (req, res) => {
       // The valid auditors = dynamic member IDs + named legacy slots only.
       // Do NOT include countAuditors (arbitrary DB strings) — old Excel-import
       // artifacts like "Physical Quantity_1" would corrupt the physical total.
-      const LEGACY_SLOTS = ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
-      const ALLOWED_AUDITORS = Array.from(new Set([...LEGACY_SLOTS, ...memberIds]));
+      
+      const ALLOWED_AUDITORS = Array.from(new Set([...memberIds]));
 
       processedList = itemsList.map(item => {
         const itemCounts = countsByItem[item.id] || [];
@@ -1608,12 +1608,12 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
       countsByItem[c.item_id].push(c);
     });
 
-    const LEGACY_SLOTS = ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
+    
     // Get audit members
     const { data: auditMembers } = await supabase.from('audit_members').select('*').eq('audit_session_id', id);
     const memberIds = (auditMembers || []).map(m => String(m.user_id));
     const countAuditors = Array.from(new Set((allCounts || []).map(c => String(c.auditor_name)))).filter(n => !n.startsWith('Physical Quantity'));
-    const ALLOWED_AUDITORS = Array.from(new Set([...LEGACY_SLOTS, ...memberIds, ...countAuditors]));
+    const ALLOWED_AUDITORS = Array.from(new Set([...memberIds, ...countAuditors]));
 
     const processedItems = (items || []).map(item => {
       const itemCounts = countsByItem[item.id] || [];

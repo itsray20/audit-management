@@ -1881,9 +1881,8 @@ export default function App() {
                         // state while the PUT is still in-flight on the server.
                         savingCountRef.current = true;
 
-                        const LEGACY_SLOTS = new Set(['Admin', 'User1', 'User2', 'User3', 'User4', 'User5']);
                         const memberIdSet = new Set((auditMembers || []).map(m => String(m.user_id)));
-                        const isAllowed = (name) => LEGACY_SLOTS.has(String(name)) || memberIdSet.has(String(name));
+                        const isAllowed = (name) => memberIdSet.has(String(name));
 
                         setItems(prev => prev.map(it => {
                           if (it.id !== itemId) return it;
