@@ -373,7 +373,12 @@ export default function DetailsPanel({
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Target Auditor Column</label>
                 <div className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100/50 dark:bg-zinc-800/50 border border-zinc-200/50 dark:border-zinc-700/50">
-                  {roleNamesMap[currentUser.role] || currentUser.role}
+                  {myMember?.user_name || roleNamesMap[currentUser.role] || currentUser.role}
+                  {myMember && (myMember.status === 'frozen' || myMember.status === 'removed') && (
+                    <span className="ml-2 text-[10px] text-rose-500 font-bold uppercase tracking-wide">
+                      ({myMember.status})
+                    </span>
+                  )}
                 </div>
               </div>
 
