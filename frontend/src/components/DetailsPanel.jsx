@@ -11,7 +11,8 @@ export default function DetailsPanel({
   onClose,
   onUpdate,
   isDark,
-  roleNamesMap = {}
+  roleNamesMap = {},
+  auditMembers = []
 }) {
   const [selectedAuditor, setSelectedAuditor] = useState('');
   const [physicalCount, setPhysicalCount] = useState('');
