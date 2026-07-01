@@ -23,11 +23,14 @@ export default function Login({ onLogin }) {
   };
 
   const users = [
-    { name: 'Srikant',   username: 'srikant',   role: 'Admin', pw: 'srikant123' },
-    { name: 'Sathya',    username: 'sathya',    role: 'User1', pw: 'user223' },
-    { name: 'Santosh',   username: 'santosh',   role: 'User2', pw: 'user323' },
-    { name: 'Naveen',    username: 'naveen',    role: 'User3', pw: 'user423' },
-    { name: 'Shreeyash', username: 'shreeyash', role: 'User4', pw: 'user523' },
+    { name: 'Srikant',   username: 'srikant',   role: 'Admin',      pw: 'srikant123' },
+    { name: 'Shreeyash', username: 'shreeyash', role: 'Admin',      pw: 'user523' },
+    { name: 'Rohan',     username: 'rohan',     role: 'Developer',  pw: 'rohan123' },
+    { name: 'Sathya',    username: 'sathya',    role: 'CoFounder',  pw: 'user223' },
+    { name: 'Naveen',    username: 'naveen',    role: 'CoFounder',  pw: 'user423' },
+    { name: 'Santosh',   username: 'santosh',   role: 'CoFounder',  pw: 'user323' },
+    { name: 'Amit',      username: 'amit',      role: 'Employee',   pw: 'Amit' },
+    { name: 'Priya',     username: 'priya',     role: 'Employee',   pw: 'Priya' },
   ];
 
   return (

@@ -1711,8 +1711,8 @@ export default function App() {
                     const hasImported = totalItems > 0;
                     return (
                       <form onSubmit={handleFileUpload} className="flex items-center gap-2 shrink-0">
-                        <label 
-                          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${hasImported ? 'opacity-40 cursor-not-allowed select-none' : 'cursor-pointer hover:bg-[var(--glass-bg-hover)]'}`} 
+                        <label
+                          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${hasImported ? 'opacity-40 cursor-not-allowed select-none' : 'cursor-pointer hover:bg-[var(--glass-bg-hover)]'}`}
                           style={{ background: 'var(--glass-bg-light)', border: '1px solid var(--glass-border-dim)', color: 'var(--text-secondary)' }}
                         >
                           <UploadCloud className="h-3.5 w-3.5" />
@@ -1867,7 +1867,10 @@ export default function App() {
                       storeFilter={storeFilter}
                       setStoreFilter={setStoreFilter}
                       meta={meta}
-                      onRowClick={(item) => setSelectedItem(selectedItem?.id === item.id ? null : item)}
+                      onRowClick={(item) => {
+                          if (userAuditFrozen && !userPrivileged) return;
+                          setSelectedItem(selectedItem?.id === item.id ? null : item);
+                        }}
                       selectedItemId={selectedItem?.id}
                       auditors={auditorColumnIds}
                       auditColumns={auditColumns}
@@ -1889,10 +1892,10 @@ export default function App() {
                           const alreadyExists = existingCounts.some(c => String(c.auditor_name) === String(auditorId));
                           const newCounts = alreadyExists
                             ? existingCounts.map(c =>
-                                String(c.auditor_name) === String(auditorId)
-                                  ? { ...c, physical_count: newValue }
-                                  : c
-                              )
+                              String(c.auditor_name) === String(auditorId)
+                                ? { ...c, physical_count: newValue }
+                                : c
+                            )
                             : [...existingCounts, { auditor_name: auditorId, physical_count: newValue }];
 
                           const totalPhysical = newCounts
@@ -2752,13 +2755,13 @@ export default function App() {
                 {/* Detail Panel Modal */}
                 {selectedItem && (
                   <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => setSelectedItem(null)}>
-                    <div 
-                      className="w-full max-w-5xl max-h-[90vh] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl relative animate-slide-up flex flex-col" 
-                      style={{ background: 'var(--card-solid)', border: '1px solid var(--glass-border)', boxShadow: '0 24px 48px rgba(0,0,0,0.4)' }} 
+                    <div
+                      className="w-full max-w-5xl max-h-[90vh] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl relative animate-slide-up flex flex-col"
+                      style={{ background: 'var(--card-solid)', border: '1px solid var(--glass-border)', boxShadow: '0 24px 48px rgba(0,0,0,0.4)' }}
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="overflow-y-auto flex-1 custom-scrollbar">
-                        <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} auditMembers={auditMembers} />
+                        <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} />
                       </div>
                     </div>
                   </div>

@@ -1,6 +1,62 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Save, AlertCircle, CheckCircle2, Lock, PackagePlus, ChevronRight, ChevronDown, ArrowLeft, Hash, Calendar, DollarSign, Package } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle2, Lock, PackagePlus, ChevronRight, ChevronLeft, ChevronDown, ArrowLeft, Hash, Calendar, DollarSign, Package } from 'lucide-react';
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEK_DAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
+const formatToDMY = (dateStr) => {
+  if (!dateStr) return '';
+  const normalized = dateStr.replace(/[\/\.\s]/g, '-');
+  const parts = normalized.split('-');
+  if (parts.length === 3) {
+    if (parts[2].length === 4) return normalized; // Already DD-MM-YYYY
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  return normalized;
+};
+
+const formatToYMD = (dateStr) => {
+  if (!dateStr) return '';
+  const normalized = dateStr.replace(/[\/\.\s]/g, '-');
+  const parts = normalized.split('-');
+  if (parts.length === 3) {
+    if (parts[0].length === 4) return normalized; // Already YYYY-MM-DD
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  return normalized;
+};
+
+const getExpiryValidationError = (dateStr) => {
+  if (!dateStr) return '';
+  const cleaned = dateStr.replace(/[^0-9\-]/g, '');
+  
+  // Check day part
+  if (cleaned.length >= 2) {
+    const day = parseInt(cleaned.slice(0, 2), 10);
+    if (day === 0 || day > 31) {
+      return 'Invalid day (must be 01-31)';
+    }
+  }
+  
+  // Check month part
+  if (cleaned.length >= 5) {
+    const month = parseInt(cleaned.slice(3, 5), 10);
+    if (month === 0 || month > 12) {
+      return 'Invalid month (must be 01-12)';
+    }
+  }
+
+  // Check complete format
+  if (cleaned.length === 10) {
+    const dmyRegex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-\d{4}$/;
+    if (!dmyRegex.test(cleaned)) {
+      return 'Invalid date format (DD-MM-YYYY)';
+    }
+  }
+  
+  return '';
+};
 
 export default function ExtraFoundForm({ sessionId, currentUser, auditIsLocked, onSuccess }) {
   const [masterItems, setMasterItems] = useState([]);
@@ -15,6 +71,23 @@ export default function ExtraFoundForm({ sessionId, currentUser, auditIsLocked, 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+  const [pickerMonth, setPickerMonth] = useState(new Date().getMonth());
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const valError = getExpiryValidationError(expiryDate);
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (showDatePicker && !e.target.closest('.apple-datepicker-container')) {
+        setShowDatePicker(false);
+      }
+    };
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
+  }, [showDatePicker]);
 
   useEffect(() => {
     if (sessionId) fetchMasterItems();
@@ -44,12 +117,20 @@ export default function ExtraFoundForm({ sessionId, currentUser, auditIsLocked, 
     const countNum = parseInt(physicalCount);
     if (isNaN(countNum) || countNum <= 0) { setError('Physical count must be greater than 0.'); return; }
 
+    if (expiryDate) {
+      const dmyRegex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-\d{4}$/;
+      if (!dmyRegex.test(expiryDate)) {
+        setError('Expiry date must be a valid date in DD-MM-YYYY format (e.g., 30-06-2026).');
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
       const itemRes = await axios.post(`/api/audits/${sessionId}/items`, {
         item_name: itemName,
         batch_no: batchNo,
-        expiry_date: expiryDate,
+        expiry_date: formatToYMD(expiryDate),
         unit_mrp: Number(unitMrp || 0),
         unit_purchase_rate: Number(unitPurchaseRate),
         system_qty: 0,
@@ -60,7 +141,7 @@ export default function ExtraFoundForm({ sessionId, currentUser, auditIsLocked, 
       });
       const newItem = itemRes.data;
       await axios.put(`/api/items/${newItem.id}/count`, {
-        auditor_name: currentUser.role,
+        auditor_name: currentUser.id ? String(currentUser.id) : currentUser.role,
         physical_count: countNum,
         expiry_check: false,
         remarks: 'Extra found physical entry'
@@ -127,7 +208,7 @@ export default function ExtraFoundForm({ sessionId, currentUser, auditIsLocked, 
       )}
 
       {/* Form Card */}
-      <div className="panel-card rounded-2xl overflow-hidden">
+      <div className="panel-card rounded-2xl">
         <form onSubmit={handleSubmit}>
 
           {/* ── Section 1: Item Identification ── */}
@@ -209,18 +290,196 @@ export default function ExtraFoundForm({ sessionId, currentUser, auditIsLocked, 
                   style={{ color: 'var(--text-primary)' }}
                 />
               </div>
-              <div>
+              <div className="apple-datepicker-container relative">
                 <label className={fieldLabel} style={{ color: 'var(--text-tertiary)' }}>Expiry Date</label>
                 <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: 'var(--text-tertiary)' }} />
                   <input
-                    type="date"
+                    type="text"
+                    placeholder="DD-MM-YYYY"
                     value={expiryDate}
-                    onChange={(e) => setExpiryDate(e.target.value)}
-                    className={`${fieldInput} pl-9`}
-                    style={{ color: 'var(--text-primary)' }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const cleaned = val.replace(/[^0-9\-]/g, '');
+                      
+                      // If deleting, set value directly and skip formatting
+                      if (cleaned.length < expiryDate.length) {
+                        setExpiryDate(cleaned);
+                        return;
+                      }
+                      
+                      // Strip all existing dashes to re-format dynamically
+                      const digits = cleaned.replace(/\-/g, '');
+                      let formatted = '';
+                      if (digits.length <= 2) {
+                        formatted = digits;
+                      } else if (digits.length <= 4) {
+                        formatted = `${digits.slice(0, 2)}-${digits.slice(2)}`;
+                      } else {
+                        formatted = `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}`;
+                      }
+                      setExpiryDate(formatted);
+                    }}
+                    className={`${fieldInput} pr-10 ${valError ? '!border-rose-500 !ring-rose-500 !focus:border-rose-500 !focus:ring-rose-500' : ''}`}
+                    style={{ 
+                      color: 'var(--text-primary)',
+                      borderColor: valError ? '#FF3B30' : undefined,
+                      boxShadow: valError ? '0 0 0 1px rgba(255,59,48,0.25)' : undefined 
+                    }}
                   />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDatePicker(!showDatePicker);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 flex items-center justify-center cursor-pointer"
+                  >
+                    <Calendar className="h-4 w-4" />
+                  </button>
                 </div>
+                {valError && (
+                  <span className="text-[10px] text-rose-500 font-semibold mt-1 block">
+                    {valError}
+                  </span>
+                )}
+
+                {showDatePicker && (() => {
+                  const firstDayIdx = new Date(pickerYear, pickerMonth, 1).getDay();
+                  const daysInMonth = new Date(pickerYear, pickerMonth + 1, 0).getDate();
+                  const prevMonthDays = new Date(pickerYear, pickerMonth, 0).getDate();
+
+                  const cells = [];
+                  for (let i = firstDayIdx - 1; i >= 0; i--) {
+                    const pmYear = pickerMonth === 0 ? pickerYear - 1 : pickerYear;
+                    const pmMonth = pickerMonth === 0 ? 12 : pickerMonth;
+                    cells.push({
+                      day: prevMonthDays - i,
+                      isCurrentMonth: false,
+                      dateStr: `${pmYear}-${String(pmMonth).padStart(2, '0')}-${String(prevMonthDays - i).padStart(2, '0')}`
+                    });
+                  }
+                  for (let i = 1; i <= daysInMonth; i++) {
+                    cells.push({
+                      day: i,
+                      isCurrentMonth: true,
+                      dateStr: `${pickerYear}-${String(pickerMonth + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`
+                    });
+                  }
+                  const remaining = (7 - (cells.length % 7)) % 7;
+                  for (let i = 1; i <= remaining; i++) {
+                    const nmYear = pickerMonth === 11 ? pickerYear + 1 : pickerYear;
+                    const nmMonth = pickerMonth === 11 ? 1 : pickerMonth + 2;
+                    cells.push({
+                      day: i,
+                      isCurrentMonth: false,
+                      dateStr: `${nmYear}-${String(nmMonth).padStart(2, '0')}-${String(i).padStart(2, '0')}`
+                    });
+                  }
+
+                  const handlePrevMonth = (e) => {
+                    e.stopPropagation();
+                    if (pickerMonth === 0) {
+                      setPickerMonth(11);
+                      setPickerYear(y => y - 1);
+                    } else {
+                      setPickerMonth(m => m - 1);
+                    }
+                  };
+
+                  const handleNextMonth = (e) => {
+                    e.stopPropagation();
+                    if (pickerMonth === 11) {
+                      setPickerMonth(0);
+                      setPickerYear(y => y + 1);
+                    } else {
+                      setPickerMonth(m => m + 1);
+                    }
+                  };
+
+                  const handleSelectDate = (dateStr, e) => {
+                    e.stopPropagation();
+                    setExpiryDate(formatToDMY(dateStr));
+                    setShowDatePicker(false);
+                  };
+
+                  const todayStr = new Date().toISOString().split('T')[0];
+
+                  return (
+                    <div
+                      className="absolute right-0 mb-2 z-50 rounded-2xl p-4 shadow-xl border animate-dropdown-in"
+                      style={{
+                        width: '280px',
+                        background: isDark ? 'rgba(28,28,30,0.96)' : 'rgba(255,255,255,0.98)',
+                        backdropFilter: 'blur(20px)',
+                        WebkitBackdropFilter: 'blur(20px)',
+                        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                        boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
+                        bottom: '100%',
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-bold text-zinc-900 dark:text-white" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
+                          {MONTH_NAMES[pickerMonth]} {pickerYear}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={handlePrevMonth}
+                            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 cursor-pointer flex items-center justify-center transition-colors"
+                          >
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleNextMonth}
+                            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 cursor-pointer flex items-center justify-center transition-colors"
+                          >
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-1 text-center mb-1.5">
+                        {WEEK_DAYS.map((wd, idx) => (
+                          <span key={idx} className="text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">
+                            {wd}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-1 text-center">
+                        {cells.map((cell, idx) => {
+                          const isSelected = expiryDate === formatToDMY(cell.dateStr);
+                          const isToday = todayStr === cell.dateStr;
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={(e) => handleSelectDate(cell.dateStr, e)}
+                              className="aspect-square flex items-center justify-center text-[11px] font-semibold rounded-full cursor-pointer relative transition-all"
+                              style={{
+                                color: isSelected 
+                                  ? '#ffffff' 
+                                  : cell.isCurrentMonth 
+                                    ? 'var(--text-primary)' 
+                                    : 'var(--text-tertiary)',
+                                background: isSelected 
+                                  ? '#007AFF' 
+                                  : 'transparent',
+                                border: isToday && !isSelected 
+                                  ? '1px solid #007AFF' 
+                                  : 'none',
+                              }}
+                            >
+                              {cell.day}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>

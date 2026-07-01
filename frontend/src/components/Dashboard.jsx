@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { 
   TrendingUp, TrendingDown, Package, ShieldCheck, 
-  AlertTriangle, DollarSign, RefreshCw, CalendarRange, MapPin, Truck, CheckCircle2, ChevronRight
+  AlertTriangle, DollarSign, RefreshCw, CalendarRange, MapPin, Truck, CheckCircle2, ChevronRight,
+  Users, Snowflake, UserX, BarChart2
 } from 'lucide-react';
 
 const formatCurrency = (val) => {
@@ -13,7 +14,37 @@ const formatCurrency = (val) => {
   return '₹' + num.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 };
 
-export default function Dashboard({ metrics, isDark }) {
+const ROLE_COLORS = {
+  Admin: '#FF6B35',
+  Developer: '#8B5CF6',
+  CoFounder: '#F59E0B',
+  Employee: '#007AFF',
+};
+
+const getRankBadgeStyle = (index, isDark) => {
+  if (index === 0) return { background: 'linear-gradient(135deg, #FFD700, #FFA500)', color: '#fff' };
+  if (index === 1) return { background: 'linear-gradient(135deg, #E0E0E0, #9E9E9E)', color: '#fff' };
+  if (index === 2) return { background: 'linear-gradient(135deg, #CD7F32, #8B4513)', color: '#fff' };
+  return { background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', color: 'var(--text-tertiary)' };
+};
+
+const getRoleGradient = (role) => {
+  if (role === 'Admin') return 'linear-gradient(135deg, #FF9500, #FF5E3A)';
+  if (role === 'Developer') return 'linear-gradient(135deg, #5856D6, #AF52DE)';
+  if (role === 'CoFounder') return 'linear-gradient(135deg, #FF2D55, #FF3B30)';
+  return 'linear-gradient(135deg, #007AFF, #5AC8FA)';
+};
+
+
+export default function Dashboard({ 
+  metrics, 
+  isDark, 
+  currentUser, 
+  auditMembers = [], 
+  roleNamesMap = {},
+  showOnlyPerformance = false,
+  hidePerformance = false
+}) {
   const [discrepancyTab, setDiscrepancyTab] = useState('shortages');
 
   if (!metrics) {
@@ -60,22 +91,10 @@ export default function Dashboard({ metrics, isDark }) {
       title: 'Extra Found Value',
       value: '+' + formatCurrency(metrics.extraFoundVal || metrics.extraFoundValue),
       icon: ShieldCheck,
-      desc: 'Physical items missing in system file',
+      desc: `Qty: ${metrics.extraFoundQty || 0} units • Missing in system`,
       color: 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1c1c1e]',
       iconBg: 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400',
-      trend: { text: 'Unregistered', isPositive: true }
-    },
-    {
-      title: 'Net Shortage',
-      value: formatCurrency(metrics.netShortage),
-      icon: AlertTriangle,
-      desc: 'Shortage balanced by extra found',
-      color: 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1c1c1e]',
-      iconBg: 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400',
-      trend: {
-        text: metrics.netShortage >= 0 ? 'Balanced Surplus' : 'Net Deficit',
-        isPositive: metrics.netShortage >= 0
-      }
+      trend: { text: `${metrics.categoryBreakdown?.['Extra Found'] || 0} Items`, isPositive: true }
     },
     {
       title: 'Net Audit Variance',
@@ -92,13 +111,31 @@ export default function Dashboard({ metrics, isDark }) {
       }
     },
     {
-      title: 'Expiry Stock Value',
-      value: formatCurrency(metrics.expiredValue),
-      icon: CalendarRange,
-      desc: 'Physical stock verified as expired',
+      title: 'Total Perfect Match',
+      value: formatCurrency(metrics.totalPerfectMatchValue || 0),
+      icon: CheckCircle2,
+      desc: 'Physical Qty * Purchase Rate',
       color: 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1c1c1e]',
       iconBg: 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400',
-      trend: { text: 'Expired', isPositive: false }
+      trend: { text: 'Perfect Match', isPositive: true }
+    },
+    {
+      title: 'Total System Expiry',
+      value: formatCurrency(metrics.totalSystemExpiryValue || 0),
+      icon: CalendarRange,
+      desc: 'System Qty * Purchase Rate',
+      color: 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1c1c1e]',
+      iconBg: 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400',
+      trend: { text: 'System Expiry', isPositive: false }
+    },
+    {
+      title: 'Total Physical Expiry',
+      value: formatCurrency(metrics.totalPhysicalExpiryValue || 0),
+      icon: CalendarRange,
+      desc: 'Physical Qty * Purchase Rate',
+      color: 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#1c1c1e]',
+      iconBg: 'bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400',
+      trend: { text: 'Physical Expiry', isPositive: false }
     }
   ];
 
@@ -342,6 +379,88 @@ export default function Dashboard({ metrics, isDark }) {
     ]
   };
 
+  if (showOnlyPerformance) {
+    return (
+      <div className="space-y-6">
+        {/* ─── Member Performance Section ─── */}
+        {metrics.memberPerformance && metrics.memberPerformance.length > 0 && (
+          <div className="panel-card rounded-2xl p-5 border border-zinc-200/50 dark:border-zinc-800/80" style={{ background: isDark ? '#1c1c1e' : '#ffffff' }}>
+            <div className="flex items-center gap-2 mb-5">
+              <div className="p-1.5 rounded-lg" style={{ background: 'rgba(0,122,255,0.1)' }}>
+                <BarChart2 className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+              </div>
+              <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Member Performance</h4>
+              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--accent-light)', color: 'var(--accent)' }}>
+                {metrics.memberPerformance.length} members assigned
+              </span>
+            </div>
+
+            {/* Performance Bars */}
+            <div className="space-y-0">
+              {(() => {
+                const maxCount = Math.max(1, ...metrics.memberPerformance.map(m => m.entry_count));
+                return metrics.memberPerformance.map((member, idx) => {
+                  const pct = Math.round((member.entry_count / maxCount) * 100);
+                  const isFrozen = member.status === 'frozen';
+                  const isRemoved = member.status === 'removed';
+                  const initial = (member.name || '?').charAt(0).toUpperCase();
+
+                  return (
+                    <div key={member.user_id} className="flex items-center gap-3 py-3 border-b border-zinc-100 dark:border-zinc-800/30 last:border-0">
+                      {/* Rank */}
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0" style={getRankBadgeStyle(idx, isDark)}>
+                        {idx + 1}
+                      </div>
+
+                      {/* Avatar */}
+                      <div
+                        className="h-8 w-8 rounded-full flex items-center justify-center text-white text-[11px] font-black shrink-0 shadow-sm"
+                        style={{ background: isRemoved ? 'rgba(255,59,48,0.5)' : isFrozen ? 'rgba(255,149,0,0.6)' : getRoleGradient(member.role), opacity: isRemoved ? 0.6 : 1 }}
+                      >
+                        {initial}
+                      </div>
+
+                      {/* Name + Progress Bar block */}
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[13px] font-extrabold text-zinc-900 dark:text-zinc-100">{member.name}</span>
+                            {isFrozen && (
+                              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border" style={{ background: 'rgba(255,149,0,0.06)', borderColor: 'rgba(255,149,0,0.2)', color: '#FF9500' }}>
+                                Frozen
+                              </span>
+                            )}
+                            {isRemoved && (
+                              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border" style={{ background: 'rgba(255,59,48,0.06)', borderColor: 'rgba(255,59,48,0.2)', color: '#FF3B30' }}>
+                                Removed
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-[12px] font-bold text-zinc-900 dark:text-zinc-100">{member.entry_count} <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500">entries</span></span>
+                            <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', color: 'var(--text-secondary)' }}>{pct}%</span>
+                          </div>
+                        </div>
+                        {/* Progress bar */}
+                        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: isRemoved ? 'rgba(255,59,48,0.4)' : isFrozen ? '#FF9500' : getRoleGradient(member.role) }} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {metrics.memberPerformance.every(m => m.entry_count === 0) && (
+              <p className="text-center text-xs py-4" style={{ color: 'var(--text-tertiary)' }}>No entries recorded yet. Data will appear as members add counts.</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       
@@ -366,13 +485,13 @@ export default function Dashboard({ metrics, isDark }) {
                   <Icon className="h-4.5 w-4.5" style={{ color: 'var(--accent)' }} />
                 </div>
               </div>
-              <div className="mt-4 flex justify-between items-center text-[10px]">
-                <span className="text-zinc-400 dark:text-zinc-500">{kpi.desc}</span>
+              <div className="mt-4 flex justify-between items-center text-xs">
+                <span className="text-zinc-500 dark:text-zinc-400 font-medium">{kpi.desc}</span>
                 {kpi.trend && (
-                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap shrink-0 ${
                     kpi.trend.isPositive 
-                      ? 'bg-emerald-100/60 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400' 
-                      : 'bg-rose-100/60 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400'
+                      ? 'bg-emerald-100/70 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-450' 
+                      : 'bg-rose-100/70 text-rose-700 dark:bg-rose-950/60 dark:text-rose-450'
                   }`}>
                     {kpi.trend.text}
                   </span>
@@ -519,6 +638,83 @@ export default function Dashboard({ metrics, isDark }) {
         </div>
 
       </div>
+
+      {/* ─── Member Performance Section ─── */}
+      {!hidePerformance && metrics.memberPerformance && metrics.memberPerformance.length > 0 && (
+        <div className="panel-card rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-5">
+            <div className="p-1.5 rounded-lg" style={{ background: 'rgba(0,122,255,0.1)' }}>
+              <BarChart2 className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+            </div>
+            <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Member Performance</h4>
+            <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--accent-light)', color: 'var(--accent)' }}>
+              {metrics.memberPerformance.length} members assigned
+            </span>
+          </div>
+
+          {/* Performance Bars */}
+          <div className="space-y-0">
+            {(() => {
+              const maxCount = Math.max(1, ...metrics.memberPerformance.map(m => m.entry_count));
+              return metrics.memberPerformance.map((member, idx) => {
+                const pct = Math.round((member.entry_count / maxCount) * 100);
+                const isFrozen = member.status === 'frozen';
+                const isRemoved = member.status === 'removed';
+                const initial = (member.name || '?').charAt(0).toUpperCase();
+
+                return (
+                  <div key={member.user_id} className="flex items-center gap-3 py-3 border-b border-zinc-100 dark:border-zinc-800/30 last:border-0">
+                    {/* Rank */}
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0" style={getRankBadgeStyle(idx, isDark)}>
+                      {idx + 1}
+                    </div>
+
+                    {/* Avatar */}
+                    <div
+                      className="h-8 w-8 rounded-full flex items-center justify-center text-white text-[11px] font-black shrink-0 shadow-sm"
+                      style={{ background: isRemoved ? 'rgba(255,59,48,0.5)' : isFrozen ? 'rgba(255,149,0,0.6)' : getRoleGradient(member.role), opacity: isRemoved ? 0.6 : 1 }}
+                    >
+                      {initial}
+                    </div>
+
+                    {/* Name + Progress Bar block */}
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[13px] font-extrabold text-zinc-900 dark:text-zinc-100">{member.name}</span>
+                          {isFrozen && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border" style={{ background: 'rgba(255,149,0,0.06)', borderColor: 'rgba(255,149,0,0.2)', color: '#FF9500' }}>
+                              <Snowflake className="h-2 w-2" /> Frozen
+                            </span>
+                          )}
+                          {isRemoved && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border" style={{ background: 'rgba(255,59,48,0.06)', borderColor: 'rgba(255,59,48,0.2)', color: '#FF3B30' }}>
+                              <UserX className="h-2 w-2" /> Removed
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[12px] font-bold text-zinc-900 dark:text-zinc-100">{member.entry_count} <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500">entries</span></span>
+                          <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', color: 'var(--text-secondary)' }}>{pct}%</span>
+                        </div>
+                      </div>
+                      {/* Progress bar */}
+                      <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
+                        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: isRemoved ? 'rgba(255,59,48,0.4)' : isFrozen ? '#FF9500' : getRoleGradient(member.role) }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+          {metrics.memberPerformance.every(m => m.entry_count === 0) && (
+            <p className="text-center text-xs py-4" style={{ color: 'var(--text-tertiary)' }}>No entries recorded yet. Data will appear as members add counts.</p>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }

@@ -10,15 +10,8 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Helper: run raw SQL via RPC (for complex queries)
-const rawQuery = async (query, params = []) => {
-  const { data, error } = await supabase.rpc('exec_raw_sql', { query_text: query, query_params: params });
-  if (error) throw new Error(error.message);
-  return data;
-};
-
 const initDb = async () => {
-  console.log('Checking Supabase connection and seeding data...');
+  console.log('Checking Supabase connection...');
   try {
     const { data: existingUsers, error } = await supabase.from('users').select('username');
     if (error) {
@@ -30,29 +23,95 @@ const initDb = async () => {
     const hasSrikant = existingUsers && existingUsers.some(u => u.username === 'srikant');
 
     if (!hasSrikant) {
-      console.log('Re-seeding standard committee users...');
+      console.log('Re-seeding standard team users...');
       await supabase.from('users').delete().neq('id', 0);
 
-      // Supabase schema only allows roles: 'Admin' and 'Auditor'
-      // We encode: name = "DisplayName|Password|AuditorSlot"
-      // Slot is Admin/User1/User2/User3/User4/User5
+      // New role hierarchy: Admin, Developer, CoFounder, TeamMember, Employee
       const seedData = [
-        { username: 'srikant',   name: 'Srikant|srikant123|Admin',    role: 'Admin'   },
-        { username: 'user1',     name: 'User 1|user123|User1',         role: 'Auditor' },
-        { username: 'sathya',    name: 'Sathya|user223|User2',         role: 'Auditor' },
-        { username: 'santosh',   name: 'Santosh|user323|User3',        role: 'Auditor' },
-        { username: 'naveen',    name: 'Naveen|user423|User4',         role: 'Auditor' },
-        { username: 'shreeyash', name: 'Shreeyash|user523|User5',      role: 'Auditor' }
+        {
+          username: 'srikant',
+          name: 'Srikant|srikant123|Admin',
+          display_name: 'Srikant',
+          role: 'Admin',
+          status: 'active',
+          joined_at: new Date().toISOString()
+        },
+        {
+          username: 'admin2',
+          name: 'Admin Two|admin223|Admin',
+          display_name: 'Admin Two',
+          role: 'Admin',
+          status: 'active',
+          joined_at: new Date().toISOString()
+        },
+        {
+          username: 'developer',
+          name: 'Developer|dev123|Developer',
+          display_name: 'Developer',
+          role: 'Developer',
+          status: 'active',
+          joined_at: new Date().toISOString()
+        },
+        {
+          username: 'sathya',
+          name: 'Sathya|user223|CoFounder',
+          display_name: 'Sathya',
+          role: 'CoFounder',
+          status: 'active',
+          joined_at: new Date().toISOString()
+        },
+        {
+          username: 'santosh',
+          name: 'Santosh|user323|CoFounder',
+          display_name: 'Santosh',
+          role: 'CoFounder',
+          status: 'active',
+          joined_at: new Date().toISOString()
+        },
+        {
+          username: 'naveen',
+          name: 'Naveen|user423|CoFounder',
+          display_name: 'Naveen',
+          role: 'CoFounder',
+          status: 'active',
+          joined_at: new Date().toISOString()
+        },
+        {
+          username: 'shreeyash',
+          name: 'Shreeyash|user523|CoFounder',
+          display_name: 'Shreeyash',
+          role: 'CoFounder',
+          status: 'active',
+          joined_at: new Date().toISOString()
+        }
       ];
 
       const { error: seedError } = await supabase.from('users').insert(seedData);
       if (seedError) {
         console.warn('Seed failed:', seedError.message);
       } else {
-        console.log('Seeded standard committee users successfully.');
+        console.log('Seeded standard team users successfully.');
       }
     } else {
-      console.log('Committee users already seeded.');
+      console.log('Users already seeded.');
+    }
+
+    // Check and seed hospitals if the table exists
+    try {
+      const { data: existingHospitals, error: hErr } = await supabase.from('hospitals').select('id').limit(1);
+      if (!hErr && (!existingHospitals || existingHospitals.length === 0)) {
+        console.log('Seeding hospitals...');
+        await supabase.from('hospitals').insert([
+          { name: 'Kukatpally', location: 'Kukatpally, Hyderabad', contact_number: '' },
+          { name: 'Ameerpet', location: 'Ameerpet, Hyderabad', contact_number: '' },
+          { name: 'Dilsukhnagar', location: 'Dilsukhnagar, Hyderabad', contact_number: '' },
+          { name: 'Miyapur', location: 'Miyapur, Hyderabad', contact_number: '' },
+          { name: 'KPHB', location: 'KPHB Colony, Hyderabad', contact_number: '' },
+        ]);
+        console.log('Hospitals seeded.');
+      }
+    } catch (hErr) {
+      console.warn('Hospitals table not found yet. Run SQL migration first:', hErr.message);
     }
 
     console.log('Database ready.');

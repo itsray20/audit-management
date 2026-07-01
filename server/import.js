@@ -85,6 +85,16 @@ const importExcel = async (auditSessionId, filePath) => {
   
   console.log(`Excel file loaded: ${sheetNames.join(', ')}`);
 
+  // Fetch db users to map Excel headers to user IDs
+  const { data: dbUsers } = await supabase.from('users').select('id, name, username, display_name');
+  const userMap = {};
+  (dbUsers || []).forEach(u => {
+    const parts = (u.name || '').split('|');
+    const dispName = (u.display_name || parts[0] || u.username).toLowerCase().trim();
+    userMap[dispName] = String(u.id);
+    userMap[u.username.toLowerCase().trim()] = String(u.id);
+  });
+
   // Detect which sheets to import
   // Main Inventory sheet
   let mainSheetName = sheetNames.find(s => ['total stock', 'sheet1', 'inventory', 'stock'].includes(s.toLowerCase()));
@@ -254,17 +264,44 @@ const importExcel = async (auditSessionId, filePath) => {
             let auditorName = col.replace(/\s*Phy\s*Qty/gi, '').trim();
             if (auditorName === 'Qty.1') {
               auditorName = 'Extra Count';
-            } else if (/^user[1-5]$/i.test(auditorName)) {
-              auditorName = auditorName.charAt(0).toUpperCase() + auditorName.slice(1).toLowerCase();
-            } else if (/^admin$/i.test(auditorName)) {
-              auditorName = 'Admin';
+            } else {
+              // Try to map to user ID
+              const cleanAuditor = auditorName.toLowerCase().trim();
+              let matchedId = null;
+              for (const [nameKey, userId] of Object.entries(userMap)) {
+                if (cleanAuditor.includes(nameKey) || nameKey.includes(cleanAuditor)) {
+                  matchedId = userId;
+                  break;
+                }
+              }
+              if (matchedId) {
+                auditorName = matchedId;
+                // Auto-assign this user to the audit session if not already assigned
+                try {
+                  await supabase.from('audit_members').insert([{
+                    audit_session_id: parseInt(auditSessionId),
+                    user_id: parseInt(matchedId),
+                    status: 'active'
+                  }]);
+                } catch (e) {
+                  // Ignore unique constraint error
+                }
+              } else {
+                if (/^user[1-5]$/i.test(auditorName)) {
+                  auditorName = auditorName.charAt(0).toUpperCase() + auditorName.slice(1).toLowerCase();
+                } else if (/^admin$/i.test(auditorName)) {
+                  auditorName = 'Admin';
+                }
+              }
             }
 
-            countsToInsert.push({
-              item_id: itemId, auditor_name: auditorName,
-              physical_count: physicalCount, expiry_check: expCheck === 1,
-              remarks: remark, updated_at: new Date().toISOString()
-            });
+            if (itemId) {
+              countsToInsert.push({
+                item_id: itemId, auditor_name: auditorName,
+                physical_count: physicalCount, expiry_check: expCheck === 1,
+                remarks: remark, updated_at: new Date().toISOString()
+              });
+            }
           }
         }
       }

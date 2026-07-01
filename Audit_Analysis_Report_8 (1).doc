@@ -1,0 +1,444 @@
+
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta charset="utf-8">
+<title>Official Stock Audit Analysis Report</title>
+<!--[if gte mso 9]>
+<xml>
+<w:WordDocument>
+<w:View>Print</w:View>
+<w:Zoom>100</w:Zoom>
+<w:DoNotOptimizeForBrowser/>
+</w:WordDocument>
+</xml>
+<![endif]-->
+<style>
+body {
+  font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
+  color: #222222;
+  margin: 1.0in 1.0in 1.0in 1.0in;
+}
+h1 {
+  font-size: 26pt;
+  color: #1a365d;
+  text-align: center;
+  margin-top: 50px;
+  margin-bottom: 5px;
+}
+.subtitle {
+  font-size: 14pt;
+  color: #4a5568;
+  text-align: center;
+  margin-bottom: 40px;
+}
+h2 {
+  font-size: 16pt;
+  color: #1a365d;
+  border-bottom: 2px solid #2b6cb0;
+  padding-bottom: 3px;
+  margin-top: 30px;
+  margin-bottom: 10px;
+}
+h3 {
+  font-size: 12pt;
+  color: #2c5282;
+  margin-top: 15px;
+  margin-bottom: 5px;
+}
+p, li {
+  font-size: 11pt;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+}
+th {
+  background-color: #2b6cb0;
+  color: #ffffff;
+  font-weight: bold;
+  padding: 8px;
+  font-size: 10pt;
+  text-align: left;
+  border: 1px solid #cbd5e0;
+}
+td {
+  padding: 8px;
+  font-size: 10pt;
+  border: 1px solid #cbd5e0;
+}
+.kpi-container {
+  margin: 20px 0;
+}
+.kpi-table {
+  width: 100%;
+  border: none;
+}
+.kpi-table td {
+  border: none;
+  background-color: #f7fafc;
+  padding: 15px;
+  text-align: center;
+  border-radius: 4px;
+}
+.kpi-title {
+  font-size: 9pt;
+  color: #718096;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+.kpi-val {
+  font-size: 18pt;
+  font-weight: bold;
+  color: #2b6cb0;
+  margin-top: 5px;
+}
+.negative {
+  color: #e53e3e;
+}
+.positive {
+  color: #38a169;
+}
+.bold-row {
+  font-weight: bold;
+  background-color: #edf2f7;
+}
+</style>
+</head>
+<body>
+
+<div style="text-align: center; margin-top: 100px;">
+  <p style="font-size: 12pt; font-weight: bold; color: #4a5568; text-transform: uppercase; letter-spacing: 2px;">Pharmacy Stock Audit</p>
+  <h1>OFFICIAL AUDIT ANALYSIS REPORT</h1>
+  <p class="subtitle">Session: june <br/> Audit Reference Date: 2026-06-27</p>
+  <div style="margin-top: 150px; font-size: 10pt; color: #718096;">
+    <p><strong>Prepared By:</strong> Audit Administration</p>
+    <p><strong>Report Generated:</strong> 6/27/2026</p>
+    <p><strong>Status:</strong> Active / In Progress</p>
+  </div>
+</div>
+
+<br style="page-break-before: always;"/>
+
+<h2>1. Executive Summary</h2>
+<p>
+  This report provides a formal, comprehensive analysis of the physical pharmacy stock audit conducted for session <strong>june</strong> as of the reference date of <strong>2026-06-27</strong>. 
+  The primary objective of the audit was to reconcile physical inventory quantities against software records, isolate discrepancies, analyze financial impacts (shortages and excesses), and classify risk categories based on product expiries.
+</p>
+
+<table class="kpi-table">
+  <tr>
+    <td width="33%">
+      <div class="kpi-title">Total System Value</div>
+      <div class="kpi-val">₹12,25,578.66</div>
+    </td>
+    <td width="33%">
+      <div class="kpi-title">Gross Shortage Value</div>
+      <div class="kpi-val negative">₹4,99,985.9</div>
+    </td>
+    <td width="33%">
+      <div class="kpi-title">Total Excess Value</div>
+      <div class="kpi-val positive">₹2,26,184.45</div>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <div class="kpi-title">Extra Found Value</div>
+      <div class="kpi-val positive">₹0</div>
+    </td>
+    <td>
+      <div class="kpi-title">Net Shortage Value</div>
+      <div class="kpi-val negative">₹4,99,985.9</div>
+    </td>
+    <td>
+      <div class="kpi-title">Net Audit Variance</div>
+      <div class="kpi-val negative">₹-2,73,801.45</div>
+    </td>
+  </tr>
+</table>
+
+<h3>Key Summary Table:</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Financial Factor</th>
+      <th>Count Description</th>
+      <th style="text-align: right;">Financial Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Total System Stock Value</strong></td>
+      <td>Recorded inventory value prior to physical audit</td>
+      <td style="text-align: right;"><strong>₹12,25,578.66</strong></td>
+    </tr>
+    <tr>
+      <td>Total Excess Discovered</td>
+      <td>Recorded items found in excess of system quantities</td>
+      <td style="text-align: right;" class="positive">+₹2,26,184.45</td>
+    </tr>
+    <tr>
+      <td>Gross Shortage Discovered</td>
+      <td>Recorded items found short of system quantities</td>
+      <td style="text-align: right;" class="negative">-₹4,99,985.9</td>
+    </tr>
+    <tr>
+      <td>Extra Items Discovered</td>
+      <td>Items physically present that were not in the system at all</td>
+      <td style="text-align: right;" class="positive">+₹0</td>
+    </tr>
+    <tr class="bold-row">
+      <td><strong>Net Audit Variance</strong></td>
+      <td>The absolute net variance (Excess + Extra - Shortage)</td>
+      <td style="text-align: right;" class="negative">₹-2,73,801.45</td>
+    </tr>
+    <tr>
+      <td>OT Present Value</td>
+      <td>Manual equipment/instrument adjustments</td>
+      <td style="text-align: right;">₹0</td>
+    </tr>
+    <tr class="bold-row">
+      <td><strong>Total Expired Stock Value</strong></td>
+      <td>Value of stock physically verified as expired</td>
+      <td style="text-align: right;" class="negative">₹34,786.31</td>
+    </tr>
+  </tbody>
+</table>
+
+<br style="page-break-before: always;"/>
+
+<h2>2. Expiry Risk Analysis</h2>
+<p>
+  Inventory shelf-life management is critical to pharmacy profitability and compliance. Physical stock has been segmented into three distinct categories based on current age:
+</p>
+<ul>
+  <li><strong>EXPIRED</strong>: Items whose expiry date is in the past. These items represent direct write-offs and must be cleared from the shelves immediately.</li>
+  <li><strong>NEAR EXPIRY</strong>: Items expiring within the next 90 days. These items require active monitoring, markdown actions, or vendor-return requests.</li>
+  <li><strong>GOOD STOCK</strong>: Items expiring beyond 90 days, representing healthy inventory.</li>
+</ul>
+
+<table>
+  <thead>
+    <tr>
+      <th>Stock Expiry Status</th>
+      <th style="text-align: center;">Item Batches Count</th>
+      <th style="text-align: right;">Total Financial Value</th>
+      <th style="text-align: center;">Proportion (%)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr style="color: #e53e3e; font-weight: bold;">
+      <td>EXPIRED (Past due date)</td>
+      <td style="text-align: center;">193</td>
+      <td style="text-align: right;">₹1,52,855.62</td>
+      <td style="text-align: center;">12.5%</td>
+    </tr>
+    <tr style="color: #dd6b20; font-weight: bold;">
+      <td>NEAR EXPIRY (Expiring in &lt;= 90 days)</td>
+      <td style="text-align: center;">50</td>
+      <td style="text-align: right;">₹41,915.46</td>
+      <td style="text-align: center;">3.4%</td>
+    </tr>
+    <tr style="color: #38a169;">
+      <td>GOOD STOCK (Healthy shelf-life)</td>
+      <td style="text-align: center;">757</td>
+      <td style="text-align: right;">₹11,25,640.07</td>
+      <td style="text-align: center;">91.8%</td>
+    </tr>
+  </tbody>
+</table>
+
+<br style="page-break-before: always;"/>
+
+<h2>3. High-Value Discrepancy Breakdown</h2>
+
+<h3>Top 5 High-Value Shortages (Shrinkage / Losses)</h3>
+<p>
+  The following items represent the largest financial losses. These items should be investigated for potential theft, billing errors, or damaged goods write-off failures.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Item Name</th>
+      <th>Batch ID</th>
+      <th>Expiry</th>
+      <th style="text-align: center;">Sys Qty</th>
+      <th style="text-align: center;">Phy Qty</th>
+      <th style="text-align: center;">Diff</th>
+      <th style="text-align: right;">Rate</th>
+      <th style="text-align: right;">Loss Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    
+      <tr>
+        <td>ABSORBATACK GUN</td>
+        <td>N3G1751Y</td>
+        <td>2026-10-01</td>
+        <td style="text-align: center;">1</td>
+        <td style="text-align: center;">0</td>
+        <td style="text-align: center;" class="negative">-1</td>
+        <td style="text-align: right;">₹22,687</td>
+        <td style="text-align: right;" class="negative">₹-22,687</td>
+      </tr>
+    
+      <tr>
+        <td>CEBOCONTIN M TAB TAB</td>
+        <td>B065</td>
+        <td>2026-04-01</td>
+        <td style="text-align: center;">905</td>
+        <td style="text-align: center;">0</td>
+        <td style="text-align: center;" class="negative">-905</td>
+        <td style="text-align: right;">₹15.48</td>
+        <td style="text-align: right;" class="negative">₹-14,005.78</td>
+      </tr>
+    
+      <tr>
+        <td>ABHAYARAB</td>
+        <td>KE25020</td>
+        <td>2028-11-01</td>
+        <td style="text-align: center;">33</td>
+        <td style="text-align: center;">0</td>
+        <td style="text-align: center;" class="negative">-33</td>
+        <td style="text-align: right;">₹332.5</td>
+        <td style="text-align: right;" class="negative">₹-10,972.5</td>
+      </tr>
+    
+      <tr>
+        <td>CYSTOP OD SACHET</td>
+        <td>CS077</td>
+        <td>2027-03-01</td>
+        <td style="text-align: center;">180</td>
+        <td style="text-align: center;">19</td>
+        <td style="text-align: center;" class="negative">-161</td>
+        <td style="text-align: right;">₹66.44</td>
+        <td style="text-align: right;" class="negative">₹-10,696.84</td>
+      </tr>
+    
+      <tr>
+        <td>ABHAYARAB</td>
+        <td>KE25020</td>
+        <td>2028-11-01</td>
+        <td style="text-align: center;">33</td>
+        <td style="text-align: center;">0</td>
+        <td style="text-align: center;" class="negative">-33</td>
+        <td style="text-align: right;">₹323.66</td>
+        <td style="text-align: right;" class="negative">₹-10,680.78</td>
+      </tr>
+    
+  </tbody>
+</table>
+
+<h3>Top 5 High-Value Excesses (Surpluses)</h3>
+<p>
+  The following items represent the largest surpluses. These frequently occur due to receiving dock errors, double-receiving invoices, or failure to register custom stock.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Item Name</th>
+      <th>Batch ID</th>
+      <th>Expiry</th>
+      <th style="text-align: center;">Sys Qty</th>
+      <th style="text-align: center;">Phy Qty</th>
+      <th style="text-align: center;">Diff</th>
+      <th style="text-align: right;">Rate</th>
+      <th style="text-align: right;">Surplus Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    
+      <tr>
+        <td>1000 ML NS LIQUID</td>
+        <td>6C340170</td>
+        <td>2029-01-01</td>
+        <td style="text-align: center;">12</td>
+        <td style="text-align: center;">1200</td>
+        <td style="text-align: center;" class="positive">+1188</td>
+        <td style="text-align: right;">₹34</td>
+        <td style="text-align: right;" class="positive">₹40,392</td>
+      </tr>
+    
+      <tr>
+        <td>1000 ML NS LIQUID</td>
+        <td>UNKNOWN</td>
+        <td>2027-12-01</td>
+        <td style="text-align: center;">2</td>
+        <td style="text-align: center;">1000</td>
+        <td style="text-align: center;" class="positive">+998</td>
+        <td style="text-align: right;">₹31</td>
+        <td style="text-align: right;" class="positive">₹30,938</td>
+      </tr>
+    
+      <tr>
+        <td>ADVAGRIP 0315 .2</td>
+        <td>V240740</td>
+        <td>2029-02-01</td>
+        <td style="text-align: center;">6</td>
+        <td style="text-align: center;">16</td>
+        <td style="text-align: center;" class="positive">+10</td>
+        <td style="text-align: right;">₹1,484</td>
+        <td style="text-align: right;" class="positive">₹14,840</td>
+      </tr>
+    
+      <tr>
+        <td>BASUGINE CARTRIDGES</td>
+        <td>122509141</td>
+        <td>2028-08-01</td>
+        <td style="text-align: center;">10</td>
+        <td style="text-align: center;">28</td>
+        <td style="text-align: center;" class="positive">+18</td>
+        <td style="text-align: right;">₹496.72</td>
+        <td style="text-align: right;" class="positive">₹8,940.96</td>
+      </tr>
+    
+      <tr>
+        <td>CLEXANE 60MG INJ</td>
+        <td>S178</td>
+        <td>2027-08-01</td>
+        <td style="text-align: center;">8</td>
+        <td style="text-align: center;">22</td>
+        <td style="text-align: center;" class="positive">+14</td>
+        <td style="text-align: right;">₹537.46</td>
+        <td style="text-align: right;" class="positive">₹7,524.44</td>
+      </tr>
+    
+  </tbody>
+</table>
+
+<br style="page-break-before: always;"/>
+
+<h2>4. Operational Findings & Recommendations</h2>
+<p>
+  Based on the financial metrics and risk distributions identified, the following actions are recommended for pharmacy store management:
+</p>
+<ol class="recommendation-list">
+  <li class="recommendation-item">
+    <strong>Strengthen Security on High-Value Items:</strong> 
+    Several items in the Top Shortages table represent significant financial shrinkage. High-value stock lines should be moved behind locked cabinets or subjected to bi-weekly blind cycle counts.
+  </li>
+  <li class="recommendation-item">
+    <strong>Enforce Direct Return Guidelines for Expiries:</strong> 
+    With <strong>₹1,52,855.62</strong> in expired stock, a formal quarantine shelf should be established. Returns to vendors must be initiated at least 60 days prior to the batch expiry date to claim full replacement credits.
+  </li>
+  <li class="recommendation-item">
+    <strong>Audit the Receiving Process:</strong> 
+    The excess values (amounting to <strong>₹2,26,184.45</strong>) point to structural receiving issues, where physical stock is scanned in/accepted without verification of invoice quantities. Receiving clerks should receive mandatory retraining on blind check-in protocols.
+  </li>
+  <li class="recommendation-item">
+    <strong>Maintain Collaborative Audits:</strong> 
+    Real-time multi-auditor entry successfully captured and cross-verified counts, reducing data clashing. Continue the practice of locking sheets to status <em>Completed</em> to prevent unauthorized back-edits after physical counts wrap up.
+  </li>
+</ol>
+
+<br/>
+<br/>
+<div style="border-top: 1px solid #cbd5e0; padding-top: 10px; font-size: 9pt; color: #718096; text-align: center;">
+  *** End of Report - Confidential Stock Audit Document ***
+</div>
+
+</body>
+</html>
+  

@@ -2,15 +2,15 @@ const xlsx = require('xlsx');
 const ExcelJS = require('exceljs');
 const { supabase } = require('./db');
 
-const calculateItemValues = (item, counts, sessionDate) => {
-  const ALLOWED_AUDITORS = ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
+const calculateItemValues = (item, counts, sessionDate, allowedAuditors) => {
+  const ALLOWED_AUDITORS = allowedAuditors || ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
   
   // Sum auditor counts
   let totalCounts = 0;
   let hasExpiredCheck = false;
   
   counts.forEach(c => {
-    if (ALLOWED_AUDITORS.includes(c.auditor_name)) {
+    if (ALLOWED_AUDITORS.includes(String(c.auditor_name))) {
       totalCounts += Number(c.physical_count || 0);
     }
     if (c.expiry_check === 1 || c.expiry_check === true) {
@@ -21,7 +21,7 @@ const calculateItemValues = (item, counts, sessionDate) => {
   const totalPhysical = totalCounts + Number(item.manual_add || 0) + Number(item.manual_recheck || 0);
   const systemQty = Number(item.system_qty || 0);
   
-  const hasValidCount = counts.some(c => ALLOWED_AUDITORS.includes(c.auditor_name));
+  const hasValidCount = counts.some(c => ALLOWED_AUDITORS.includes(String(c.auditor_name)));
   const isCounted = hasValidCount || Number(item.manual_add || 0) !== 0 || Number(item.manual_recheck || 0) !== 0;
   
   const difference = isCounted ? (totalPhysical - systemQty) : 0;
@@ -57,10 +57,10 @@ const calculateItemValues = (item, counts, sessionDate) => {
   }
 
   if (isCounted) {
-    if (expiryStatus === 'EXPIRED' && totalPhysical > 0) {
-      category = 'Expired Stock';
-    } else if (systemQty === 0 && totalPhysical > 0) {
+    if (systemQty === 0 && totalPhysical > 0) {
       category = 'Extra Found';
+    } else if (expiryStatus === 'EXPIRED' && totalPhysical > 0) {
+      category = 'Expired Stock';
     } else if (item.notes && item.notes.startsWith('OT')) {
       category = 'Other';
     } else if (difference > 0) {
@@ -79,8 +79,25 @@ const calculateItemValues = (item, counts, sessionDate) => {
     totalStockValue,
     differenceValue,
     category,
-    expiryStatus
+    expiryStatus,
+    isCounted
   };
+};
+
+const fetchCountsInChunks = async (itemIds) => {
+  if (!itemIds || itemIds.length === 0) return [];
+  let allCounts = [];
+  const chunkSize = 500;
+  for (let i = 0; i < itemIds.length; i += chunkSize) {
+    const chunk = itemIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('auditor_counts')
+      .select('*')
+      .in('item_id', chunk);
+    if (error) throw error;
+    if (data) allCounts = allCounts.concat(data);
+  }
+  return allCounts;
 };
 
 const generateExcelBuffer = async (sessionId) => {
@@ -92,15 +109,27 @@ const generateExcelBuffer = async (sessionId) => {
   const sessionDate = session.audit_date;
 
   // 2. Load all items & counts
-  const { data: items, error: iErr } = await supabase
-    .from('items').select('*').eq('audit_session_id', sessionId);
-  if (iErr) throw iErr;
+  let allItems = [];
+  let pageNum = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .eq('audit_session_id', sessionId)
+      .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1)
+      .order('id', { ascending: true });
+      
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allItems = allItems.concat(data);
+    if (data.length < pageSize) break;
+    pageNum++;
+  }
+  const items = allItems;
 
   const itemIds = (items || []).map(i => i.id);
-  const { data: allCounts, error: cErr } = itemIds.length > 0
-    ? await supabase.from('auditor_counts').select('*').in('item_id', itemIds)
-    : { data: [], error: null };
-  if (cErr) throw cErr;
+  const allCounts = await fetchCountsInChunks(itemIds);
 
   // 3. Build real display-name map for auditor slots
   const { data: users } = await supabase.from('users').select('name, role');
@@ -126,10 +155,17 @@ const generateExcelBuffer = async (sessionId) => {
     countsByItem[c.item_id].push(c);
   });
 
+  // Get audit members dynamically
+  const { data: auditMembers } = await supabase
+    .from('audit_members').select('*').eq('audit_session_id', sessionId);
+  const memberIds = (auditMembers || []).map(m => String(m.user_id));
+  const countAuditors = Array.from(new Set((allCounts || []).map(c => String(c.auditor_name))));
+  const ALLOWED_AUDITORS = Array.from(new Set(['Admin', 'User1', 'User2', 'User3', 'User4', 'User5', ...memberIds, ...countAuditors]));
+
   // 4. Calculate everything
   const processedItems = (items || []).map(item => {
     const itemCounts = countsByItem[item.id] || [];
-    return calculateItemValues(item, itemCounts, sessionDate);
+    return calculateItemValues(item, itemCounts, sessionDate, ALLOWED_AUDITORS);
   });
 
   // 5. Summary value calculations
@@ -141,6 +177,10 @@ const generateExcelBuffer = async (sessionId) => {
   const otVal           = processedItems.filter(i => i.category === 'Other').reduce((s, i) => s + i.differenceValue, 0);
   const grossShortage   = shortageVal;
   const netShortage     = grossShortage + extraFoundVal;
+
+  const totalSystemExpiryVal = processedItems.filter(i => i.expiryStatus === 'EXPIRED').reduce((s, i) => s + ((i.system_qty || 0) * (i.unit_purchase_rate || 0)), 0);
+  const totalPhysicalExpiryVal = processedItems.filter(i => i.expiryStatus === 'EXPIRED').reduce((s, i) => s + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
+  const totalPerfectMatchVal = processedItems.filter(i => i.isCounted && (i.totalPhysical || 0) === (i.system_qty || 0)).reduce((s, i) => s + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Pharmacy Audit App';
@@ -289,11 +329,12 @@ const generateExcelBuffer = async (sessionId) => {
     { reportKey: '',              reportVal: '' },
     { reportKey: 'Gross Shortage',reportVal: grossShortage },
     { reportKey: 'Extra found',   reportVal: extraFoundVal },
-    { reportKey: 'Net Shortage',  reportVal: netShortage },
     { reportKey: '',              reportVal: '' },
     { reportKey: 'OT Present value', reportVal: otVal },
     { reportKey: '',              reportVal: '' },
-    { reportKey: 'Expiry Stock Value', reportVal: expiredVal },
+    { reportKey: 'Total System Expiry', reportVal: totalSystemExpiryVal },
+    { reportKey: 'Total Physical Expiry', reportVal: totalPhysicalExpiryVal },
+    { reportKey: 'Total Perfect Match', reportVal: totalPerfectMatchVal },
   ];
   wsSummary.addRows(summaryRows);
   applyBaseFormatting(wsSummary, true);
@@ -448,15 +489,27 @@ const generateWordReport = async (sessionId) => {
   const sessionDate = session.audit_date;
 
   // Load all items & counts
-  const { data: items, error: iErr } = await supabase
-    .from('items').select('*').eq('audit_session_id', sessionId);
-  if (iErr) throw iErr;
+  let allItems = [];
+  let pageNum = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .eq('audit_session_id', sessionId)
+      .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1)
+      .order('id', { ascending: true });
+      
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allItems = allItems.concat(data);
+    if (data.length < pageSize) break;
+    pageNum++;
+  }
+  const items = allItems;
 
   const itemIds = (items || []).map(i => i.id);
-  const { data: allCounts, error: cErr } = itemIds.length > 0
-    ? await supabase.from('auditor_counts').select('*').in('item_id', itemIds)
-    : { data: [], error: null };
-  if (cErr) throw cErr;
+  const allCounts = await fetchCountsInChunks(itemIds);
 
   // Group counts by item ID
   const countsByItem = {};
@@ -465,10 +518,17 @@ const generateWordReport = async (sessionId) => {
     countsByItem[c.item_id].push(c);
   });
 
+  // Get audit members dynamically
+  const { data: auditMembers } = await supabase
+    .from('audit_members').select('*').eq('audit_session_id', sessionId);
+  const memberIds = (auditMembers || []).map(m => String(m.user_id));
+  const countAuditors = Array.from(new Set((allCounts || []).map(c => String(c.auditor_name))));
+  const ALLOWED_AUDITORS = Array.from(new Set(['Admin', 'User1', 'User2', 'User3', 'User4', 'User5', ...memberIds, ...countAuditors]));
+
   // Calculate everything
   const processedItems = items.map(item => {
     const itemCounts = countsByItem[item.id] || [];
-    return calculateItemValues(item, itemCounts, sessionDate);
+    return calculateItemValues(item, itemCounts, sessionDate, ALLOWED_AUDITORS);
   });
 
   // KPI Metrics
@@ -482,6 +542,10 @@ const generateWordReport = async (sessionId) => {
   const grossShortage = shortageVal; // negative
   const netShortage = grossShortage + extraFoundVal;
   const netAuditDifference = excessVal + shortageVal + extraFoundVal + otVal;
+
+  const totalSystemExpiryVal = processedItems.filter(i => i.expiryStatus === 'EXPIRED').reduce((s, i) => s + ((i.system_qty || 0) * (i.unit_purchase_rate || 0)), 0);
+  const totalPhysicalExpiryVal = processedItems.filter(i => i.expiryStatus === 'EXPIRED').reduce((s, i) => s + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
+  const totalPerfectMatchVal = processedItems.filter(i => i.isCounted && (i.totalPhysical || 0) === (i.system_qty || 0)).reduce((s, i) => s + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
 
   // Expiry Breakdown
   const today = new Date();
@@ -687,12 +751,25 @@ td {
       <div class="kpi-val positive">${formatRS(extraFoundVal)}</div>
     </td>
     <td style="border: 1px solid #cbd5e0; background-color: #f7fafc; text-align: center;">
-      <div class="kpi-title">Net Shortage Value</div>
-      <div class="kpi-val negative">${formatRS(netShortage)}</div>
+      <div class="kpi-title">Total Perfect Match Value</div>
+      <div class="kpi-val positive" style="color: #38a169;">${formatRS(totalPerfectMatchVal)}</div>
     </td>
     <td style="border: 1px solid #cbd5e0; background-color: #f7fafc; text-align: center;">
       <div class="kpi-title">Net Audit Variance</div>
       <div class="kpi-val ${netAuditDifference >= 0 ? 'positive' : 'negative'}">${formatRS(netAuditDifference)}</div>
+    </td>
+  </tr>
+  <tr>
+    <td style="border: 1px solid #cbd5e0; background-color: #f7fafc; text-align: center;">
+      <div class="kpi-title">Total System Expiry Value</div>
+      <div class="kpi-val negative" style="color: #e53e3e;">${formatRS(totalSystemExpiryVal)}</div>
+    </td>
+    <td style="border: 1px solid #cbd5e0; background-color: #f7fafc; text-align: center;">
+      <div class="kpi-title">Total Physical Expiry Value</div>
+      <div class="kpi-val negative" style="color: #e53e3e;">${formatRS(totalPhysicalExpiryVal)}</div>
+    </td>
+    <td style="border: 1px solid #cbd5e0; background-color: #f7fafc; text-align: center; color: #718096; font-size: 11px;">
+      -
     </td>
   </tr>
 </table>
@@ -737,10 +814,20 @@ td {
       <td style="border: 1px solid #cbd5e0; padding: 6px;">Manual equipment/instrument adjustments</td>
       <td style="border: 1px solid #cbd5e0; padding: 6px; text-align: right;">${formatRS(otVal)}</td>
     </tr>
+    <tr>
+      <td style="border: 1px solid #cbd5e0; padding: 6px;">Total Perfect Match Value</td>
+      <td style="border: 1px solid #cbd5e0; padding: 6px;">Value of stock matching system quantities exactly</td>
+      <td style="border: 1px solid #cbd5e0; padding: 6px; text-align: right; color: #38a169;">${formatRS(totalPerfectMatchVal)}</td>
+    </tr>
+    <tr>
+      <td style="border: 1px solid #cbd5e0; padding: 6px;">Total System Expiry Value</td>
+      <td style="border: 1px solid #cbd5e0; padding: 6px;">Available quantity * purchase rate for expired items</td>
+      <td style="border: 1px solid #cbd5e0; padding: 6px; text-align: right; color: #e53e3e;">${formatRS(totalSystemExpiryVal)}</td>
+    </tr>
     <tr class="bold-row" style="background-color: #edf2f7; font-weight: bold;">
-      <td style="border: 1px solid #cbd5e0; padding: 6px;"><strong>Total Expired Stock Value</strong></td>
-      <td style="border: 1px solid #cbd5e0; padding: 6px;">Value of stock physically verified as expired</td>
-      <td style="border: 1px solid #cbd5e0; padding: 6px; text-align: right; color: #e53e3e;">${formatRS(expiredVal)}</td>
+      <td style="border: 1px solid #cbd5e0; padding: 6px;"><strong>Total Physical Expiry Value</strong></td>
+      <td style="border: 1px solid #cbd5e0; padding: 6px;">Physical total * purchase rate for expired items</td>
+      <td style="border: 1px solid #cbd5e0; padding: 6px; text-align: right; color: #e53e3e;"><strong>${formatRS(totalPhysicalExpiryVal)}</strong></td>
     </tr>
   </tbody>
 </table>

@@ -1,201 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import ReactDOM from 'react-dom';
-import { X, Check, History, Save, Trash2, AlertTriangle } from 'lucide-react';
-import axios from 'axios';
+const fs = require('fs');
 
-
-export default function DetailsPanel({
-  item,
-  currentUser,
-  auditIsLocked,
-  onClose,
-  onUpdate,
-  isDark,
-  roleNamesMap = {}
-}) {
-  const [selectedAuditor, setSelectedAuditor] = useState('');
-  const [physicalCount, setPhysicalCount] = useState('');
-  const [remarks, setRemarks] = useState('');
-
-  const [history, setHistory] = useState([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [error, setError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
-
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const [editItemName, setEditItemName] = useState('');
-  const [editBatchNo, setEditBatchNo] = useState('');
-  const [editExpiryDate, setEditExpiryDate] = useState('');
-  const [editUnitMrp, setEditUnitMrp] = useState('');
-  const [editUnitCost, setEditUnitCost] = useState('');
-  const [editSystemQty, setEditSystemQty] = useState('');
-  const [editLocation, setEditLocation] = useState('');
-  const [editSupplier, setEditSupplier] = useState('');
-
-  const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Developer';
-  // Own column key: use user_id for new system
-  const myMember = auditMembers.find(m => String(m.user_id) === String(currentUser.id));
-  const ownAuditorKey = myMember ? String(myMember.user_id) : currentUser.role;
-  const canEditSelectedAuditor = isAdmin || selectedAuditor === ownAuditorKey;
-
-  // Initialize panel values when item changes
-  useEffect(() => {
-    if (item) {
-      setPhysicalCount('');
-      setRemarks('');
-      setSuccessMsg('');
-      setError('');
-      fetchItemHistory();
-
-      // Initialize editable static values
-      setEditItemName(item.item_name || '');
-      setEditBatchNo(item.batch_no || '');
-      setEditExpiryDate(item.expiry_date || '');
-      setEditUnitMrp(item.unit_mrp != null ? Number(item.unit_mrp).toFixed(2) : '');
-      setEditUnitCost(item.unit_purchase_rate != null ? Number(item.unit_purchase_rate).toFixed(2) : '');
-      setEditSystemQty(String(item.system_qty ?? ''));
-      setEditLocation(item.location || '');
-      setEditSupplier(item.supplier || '');
-
-      // Default selected auditor to current user's own key
-      if (!isAdmin) {
-        setSelectedAuditor(ownAuditorKey);
-        const existingCount = (item.auditor_counts || []).find(
-          c => String(c.auditor_name) === ownAuditorKey || c.auditor_name === currentUser.role
-        );
-        if (existingCount) {
-          setPhysicalCount(String(existingCount.physical_count ?? ''));
-          setRemarks(existingCount.remarks || '');
-        }
-      } else {
-        setSelectedAuditor(ownAuditorKey);
-        const existingCount = (item.auditor_counts || []).find(
-          c => String(c.auditor_name) === ownAuditorKey
-        );
-        if (existingCount) {
-          setPhysicalCount(String(existingCount.physical_count ?? ''));
-          setRemarks(existingCount.remarks || '');
-        }
-      }
-    }
-  }, [item, currentUser]);
-
-  const fetchItemHistory = async () => {
-    if (!item) return;
-    setIsLoadingHistory(true);
-    try {
-      const response = await axios.get(`/api/audits/${item.audit_session_id}/trail`);
-      const itemLogs = response.data.filter(log => log.item_id === item.id);
-      setHistory(itemLogs);
-    } catch (err) {
-      console.error('Failed to load item history:', err);
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  };
-
-  const handleAuditorChange = (auditorName) => {
-    setSelectedAuditor(auditorName);
-    const existingCount = (item.auditor_counts || []).find(c => c.auditor_name === auditorName);
-    if (existingCount) {
-      setPhysicalCount(String(existingCount.physical_count ?? ''));
-      setRemarks(existingCount.remarks || '');
-    } else {
-      setPhysicalCount('');
-      setRemarks('');
-    }
-  };
-
-  const handleSaveStaticDetails = async (e) => {
-    e.preventDefault();
-    if (auditIsLocked) {
-      setError('This audit session is completed and locked.');
-      return;
-    }
-    try {
-      await axios.put(`/api/items/${item.id}`, {
-        item_name: editItemName,
-        batch_no: editBatchNo,
-        expiry_date: editExpiryDate,
-        unit_mrp: Number(editUnitMrp || 0),
-        unit_purchase_rate: Number(editUnitCost || 0),
-        system_qty: Number(editSystemQty || 0),
-        location: editLocation,
-        supplier: editSupplier,
-        reason: 'Admin manual edit',
-        user_name: currentUser.name
-      });
-      setSuccessMsg('Product details updated successfully.');
-      setError('');
-      onUpdate();
-      fetchItemHistory();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to update product details.');
-    }
-  };
-
-  const handleSaveCount = async (e) => {
-    e.preventDefault();
-    if (!selectedAuditor) {
-      setError('Please select or specify an auditor column.');
-      return;
-    }
-
-    if (auditIsLocked) {
-      setError('This audit session is completed and locked.');
-      return;
-    }
-
-    if (!canEditSelectedAuditor) {
-      setError(`You can only save counts in your own column.`);
-      return;
-    }
-
-    const countVal = physicalCount === '' ? null : parseInt(physicalCount);
-    if (physicalCount !== '' && (isNaN(countVal) || countVal < 0)) {
-      setError('Physical count must be a non-negative integer or left blank.');
-      return;
-    }
-
-    try {
-      await axios.put(`/api/items/${item.id}/count`, {
-        auditor_name: selectedAuditor,
-        physical_count: countVal,
-        expiry_check: false,
-        remarks: remarks
-      });
-      setSuccessMsg('Auditor count saved successfully.');
-      setError('');
-      onUpdate();
-      fetchItemHistory();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save count.');
-    }
-  };
-
-  const handleDeleteProduct = async () => {
-    setIsDeleting(true);
-    setError('');
-    try {
-      await axios.delete(`/api/items/${item.id}`);
-      setSuccessMsg('Product deleted successfully.');
-      setTimeout(() => {
-        setIsDeleting(false);
-        setShowDeleteConfirm(false);
-        onUpdate();
-        onClose();
-      }, 1000);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete product.');
-      setIsDeleting(false);
-      setShowDeleteConfirm(false);
-    }
-  };
-
-
-  return (
+const replacement = `  return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-950 overflow-hidden text-sm w-full rounded-2xl sm:rounded-3xl shadow-2xl ring-1 ring-zinc-200 dark:ring-zinc-800">
       {/* Drawer Header */}
       <div className="flex justify-between items-center px-8 py-5 border-b border-zinc-100 dark:border-zinc-800/60 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl z-10">
@@ -228,7 +33,7 @@ export default function DetailsPanel({
       )}
 
       {/* Drawer Body Scroll */}
-      <div
+      <div 
         className="flex-1 overflow-y-auto p-8 grid grid-cols-1 md:grid-cols-2 gap-8"
         style={{ WebkitOverflowScrolling: 'touch', transform: 'translateZ(0)' }}
       >
@@ -415,13 +220,13 @@ export default function DetailsPanel({
               <History className="h-4 w-4 text-zinc-400" />
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Item Audit Trail</h3>
             </div>
-
+            
             <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar -mr-2">
               {isLoadingHistory ? (
                 <div className="text-zinc-400 text-sm animate-pulse flex items-center justify-center h-full">Loading history...</div>
               ) : history.length === 0 ? (
                 <div className="text-zinc-400 text-sm flex items-center justify-center h-full text-center">
-                  No edits recorded yet.<br />Changes will appear here.
+                  No edits recorded yet.<br/>Changes will appear here.
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -429,17 +234,17 @@ export default function DetailsPanel({
                     const mappedUser = roleNamesMap[log.user_name] || log.user_name;
                     const formatFieldName = (field) => {
                       if (!field) return '';
-                      const match = field.match(/^Auditor Count \(([^)]+)\)$/);
+                      const match = field.match(/^Auditor Count \\(([^)]+)\\)$/);
                       if (match) {
                         const slot = match[1];
                         const displayName = roleNamesMap[slot] || slot;
-                        return `Auditor Count (${displayName})`;
+                        return \`Auditor Count (\${displayName})\`;
                       }
                       return field;
                     };
                     const cleanValue = (val) => {
                       if (!val) return '';
-                      return val.replace(/\s*\(Exp:[01]\)/ig, '');
+                      return val.replace(/\\s*\\(Exp:[01]\\)/ig, '');
                     };
 
                     return (
@@ -529,4 +334,15 @@ export default function DetailsPanel({
       )}
     </div>
   );
+}
+`;
+
+const code = fs.readFileSync('src/components/DetailsPanel.jsx', 'utf8');
+const startIndex = code.indexOf('  return (');
+if (startIndex !== -1) {
+  const newCode = code.substring(0, startIndex) + replacement;
+  fs.writeFileSync('src/components/DetailsPanel.jsx', newCode);
+  console.log("Successfully replaced return block.");
+} else {
+  console.error("Could not find return block.");
 }

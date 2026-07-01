@@ -54,7 +54,10 @@ export default function QuickAddPage({ sessionId, currentUser, auditIsLocked, on
 
   const selectItem = (item) => {
     setSelectedItem(item);
-    const existing = (item.auditor_counts || []).find(c => c.auditor_name === currentUser.role);
+    // Match by user ID (new system) or role (legacy fallback)
+    const existing = (item.auditor_counts || []).find(
+      c => String(c.auditor_name) === String(currentUser.id) || c.auditor_name === currentUser.role
+    );
     setQty(existing ? String(existing.physical_count ?? '') : '');
     setRemarks(existing ? existing.remarks || '' : '');
     setTimeout(() => { qtyInputRef.current?.focus(); qtyInputRef.current?.select(); }, 50);
@@ -84,16 +87,18 @@ export default function QuickAddPage({ sessionId, currentUser, auditIsLocked, on
     setTimeout(() => searchInputRef.current?.focus(), 50);
 
     try {
+      // Use user ID as auditor_name for new dynamic column system
+      const auditorKey = currentUser.id ? String(currentUser.id) : currentUser.role;
       await axios.put(`/api/items/${itemToSave.id}/count`, {
-        auditor_name: currentUser.role, physical_count: qtyVal, expiry_check: false, remarks
+        auditor_name: auditorKey, physical_count: qtyVal, expiry_check: false, remarks
       });
       setRecentLogs(prev => prev.map(l => l.id === tempLogId ? { ...l, status: 'saved' } : l));
       setAllItems(prev => prev.map(item => {
         if (item.id !== itemToSave.id) return item;
         const counts = [...(item.auditor_counts || [])];
-        const idx = counts.findIndex(c => c.auditor_name === currentUser.role);
+        const idx = counts.findIndex(c => String(c.auditor_name) === auditorKey);
         if (idx !== -1) counts[idx] = { ...counts[idx], physical_count: qtyVal };
-        else counts.push({ auditor_name: currentUser.role, physical_count: qtyVal });
+        else counts.push({ auditor_name: auditorKey, physical_count: qtyVal });
         return { ...item, auditor_counts: counts };
       }));
       if (onUpdate) onUpdate();
