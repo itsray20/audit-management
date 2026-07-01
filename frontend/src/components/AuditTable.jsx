@@ -72,12 +72,11 @@ function InlineCountCell({
 
   // Column is editable if:
   // 1. Not audit-locked globally
-  // 2. Member is active in this audit
-  // 3. Either it's the user's own column OR user is privileged
+  // 2. Either user is privileged (can edit anyone's, even frozen/removed)
+  // 3. OR it's the user's own column AND they are not frozen/removed
   const memberIsFrozenOrRemoved = memberStatus === 'frozen' || memberStatus === 'removed';
   const isEditableColumn = !auditIsLocked &&
-    !memberIsFrozenOrRemoved &&
-    (isOwnColumn || isPrivileged);
+    (isPrivileged || (isOwnColumn && !memberIsFrozenOrRemoved));
 
   const alwaysRenderInput = isEditableColumn && isPrivileged && bulkEditMode;
 
