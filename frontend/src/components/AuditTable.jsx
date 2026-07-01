@@ -456,24 +456,24 @@ export default function AuditTable({
                 <th colSpan="1" className="px-4 py-2">Status</th>
               </tr>
               <tr className="border-b border-zinc-200 dark:border-zinc-700/60 text-zinc-600 dark:text-zinc-300 text-left font-semibold" style={{ background: 'var(--glass-bg-light)' }}>
-                <th onClick={() => toggleSort('id')} className="px-4 py-2.5 text-center whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-center"># {renderSortIndicator('id')}</div>
+                <th  className="px-4 py-2.5 text-center whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                  <div className="flex items-center justify-center">#</div>
                 </th>
-                <th onClick={() => toggleSort('item_name')} className="px-2 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-between">Item Name {renderSortIndicator('item_name')}</div>
+                <th  className="px-2 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                  <div className="flex items-center justify-between">Item Name</div>
                 </th>
-                <th onClick={() => toggleSort('batch_no')} className="px-3 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-between">Batch {renderSortIndicator('batch_no')}</div>
+                <th  className="px-3 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                  <div className="flex items-center justify-between">Batch</div>
                 </th>
-                <th onClick={() => toggleSort('expiry_date')} className="px-3 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-between">Expiry {renderSortIndicator('expiry_date')}</div>
+                <th  className="px-3 py-2.5 whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                  <div className="flex items-center justify-between">Expiry</div>
                 </th>
-                <th onClick={() => toggleSort('unit_purchase_rate')} className="px-3 py-2.5 text-right whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-end">Purchase Rate {renderSortIndicator('unit_purchase_rate')}</div>
+                <th  className="px-3 py-2.5 text-right whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                  <div className="flex items-center justify-end">Purchase Rate</div>
                 </th>
                 <th className="px-3 py-2.5 text-right whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">Selling Rate</th>
-                <th onClick={() => toggleSort('system_qty')} className="px-3 py-2.5 text-center border-r border-zinc-200 dark:border-zinc-700/60 font-bold whitespace-nowrap cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-center">Avail. Qty {renderSortIndicator('system_qty')}</div>
+                <th  className="px-3 py-2.5 text-center border-r border-zinc-200 dark:border-zinc-700/60 font-bold whitespace-nowrap select-none">
+                  <div className="flex items-center justify-center">Avail. Qty</div>
                 </th>
 
                 {visibleColumns.map((col) => {
@@ -499,17 +499,17 @@ export default function AuditTable({
                   );
                 })}
 
-                <th onClick={() => toggleSort('totalPhysical')} className="px-3 py-2.5 text-center font-bold whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-center">Total {renderSortIndicator('totalPhysical')}</div>
+                <th  className="px-3 py-2.5 text-center font-bold whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                  <div className="flex items-center justify-center">Total</div>
                 </th>
-                <th onClick={() => toggleSort('difference')} className="px-3 py-2.5 text-center font-bold whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-center">Difference {renderSortIndicator('difference')}</div>
+                <th  className="px-3 py-2.5 text-center font-bold whitespace-nowrap border-r border-zinc-200 dark:border-zinc-700/60 select-none">
+                  <div className="flex items-center justify-center">Difference</div>
                 </th>
-                <th onClick={() => toggleSort('differenceValue')} className="px-3 py-2.5 text-right font-bold border-r border-zinc-200 dark:border-zinc-700/60 font-mono whitespace-nowrap cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-end">Diff. Value {renderSortIndicator('differenceValue')}</div>
+                <th  className="px-3 py-2.5 text-right font-bold border-r border-zinc-200 dark:border-zinc-700/60 font-mono whitespace-nowrap select-none">
+                  <div className="flex items-center justify-end">Diff. Value</div>
                 </th>
-                <th onClick={() => toggleSort('category')} className="px-3 py-2.5 text-center font-bold whitespace-nowrap cursor-pointer hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors select-none">
-                  <div className="flex items-center justify-center">Status {renderSortIndicator('category')}</div>
+                <th  className="px-3 py-2.5 text-center font-bold whitespace-nowrap select-none">
+                  <div className="flex items-center justify-center">Status</div>
                 </th>
               </tr>
             </thead>
