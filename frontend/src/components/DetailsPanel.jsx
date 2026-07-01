@@ -378,14 +378,38 @@ export default function DetailsPanel({
             <form onSubmit={handleSaveCount} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Target Auditor Column</label>
-                <div className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100/50 dark:bg-zinc-800/50 border border-zinc-200/50 dark:border-zinc-700/50">
+                {isAdmin ? (
+                  <select
+                    value={selectedAuditor}
+                    onChange={(e) => handleAuditorChange(e.target.value)}
+                    disabled={auditIsLocked}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-medium shadow-sm transition-all"
+                  >
+                    {auditMembers.map(m => {
+                      const uid = String(m.user_id);
+                      return (
+                        <option key={uid} value={uid}>
+                          {m.user_name} {m.status !== 'active' ? `(${m.status})` : ''}
+                        </option>
+                      );
+                    })}
+                    {/* Plus legacy slots if present */}
+                    {['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'].map(slot => (
+                      <option key={slot} value={slot}>
+                        {roleNamesMap[slot] || slot}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100/50 dark:bg-zinc-800/50 border border-zinc-200/50 dark:border-zinc-700/50">
                     {currentUser.name || currentUser.role}
-                  {myMember && (myMember.status === 'frozen' || myMember.status === 'removed') && (
-                    <span className="ml-2 text-[10px] text-rose-500 font-bold uppercase tracking-wide">
-                      ({myMember.status})
-                    </span>
-                  )}
-                </div>
+                    {myMember && (myMember.status === 'frozen' || myMember.status === 'removed') && (
+                      <span className="ml-2 text-[10px] text-rose-500 font-bold uppercase tracking-wide">
+                        ({myMember.status})
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
