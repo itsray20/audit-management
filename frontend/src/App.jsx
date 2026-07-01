@@ -136,7 +136,7 @@ export default function App() {
   const [storeFilter, setStoreFilter] = useState('');
   const [meta, setMeta] = useState({ suppliers: [], locations: [], stores: [] });
 
-  const [sortBy, setSortBy] = useState('id');
+  const [sortBy, setSortBy] = useState('item_name');
   const [sortOrder, setSortOrder] = useState('asc');
   const [selectedItem, setSelectedItem] = useState(null);
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
