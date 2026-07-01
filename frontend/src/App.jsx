@@ -2761,7 +2761,7 @@ export default function App() {
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="overflow-y-auto flex-1 custom-scrollbar">
-                        <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} />
+                        <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} auditMembers={auditMembers} />
                       </div>
                     </div>
                   </div>
