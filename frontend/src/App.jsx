@@ -131,6 +131,7 @@ export default function App() {
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
+  const [alphabetFilter, setAlphabetFilter] = useState('');
   const [supplierFilter, setSupplierFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [storeFilter, setStoreFilter] = useState('');
@@ -248,7 +249,7 @@ export default function App() {
       setDashboardMetrics(null);
       setGeneralTrail([]);
     }
-  }, [activeSession, currentPage, search, filter, supplierFilter, locationFilter, storeFilter, sortBy, sortOrder]);
+  }, [activeSession, currentPage, search, filter, alphabetFilter, supplierFilter, locationFilter, storeFilter, sortBy, sortOrder]);
 
   useEffect(() => {
     if (!activeSession || !syncEnabled || !currentUser) return;
@@ -258,7 +259,7 @@ export default function App() {
       if (activeTab === 'trail') fetchGeneralTrail(true);
     }, 5000);
     return () => clearInterval(id);
-  }, [activeSession, syncEnabled, activeTab, currentPage, search, filter, supplierFilter, locationFilter, storeFilter, currentUser, sortBy, sortOrder]);
+  }, [activeSession, syncEnabled, activeTab, currentPage, search, filter, alphabetFilter, supplierFilter, locationFilter, storeFilter, currentUser, sortBy, sortOrder]);
 
   useEffect(() => { setSelectedItem(null); }, [activeTab]);
 

@@ -274,6 +274,8 @@ export default function AuditTable({
   setSearch,
   filter,
   setFilter,
+  alphabetFilter,
+  setAlphabetFilter,
   supplierFilter,
   setSupplierFilter,
   locationFilter,
@@ -331,11 +333,11 @@ export default function AuditTable({
   };
 
   const resetFilters = () => {
-    setSearch(''); setFilter(''); setSupplierFilter('');
+    setSearch(''); setFilter(''); setAlphabetFilter(''); setSupplierFilter('');
     setLocationFilter(''); setStoreFilter(''); setCurrentPage(1);
   };
 
-  const hasFilters = search || filter || supplierFilter || locationFilter || storeFilter;
+  const hasFilters = search || filter || alphabetFilter || supplierFilter || locationFilter || storeFilter;
   const isPrivileged = currentUser?.role === 'Admin' || currentUser?.role === 'Developer';
 
   // Build display columns from auditColumns prop
@@ -371,6 +373,17 @@ export default function AuditTable({
             />
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none flex-nowrap py-0.5">
+            <GlassSelect
+                value={alphabetFilter}
+                onChange={(v) => { setAlphabetFilter(v); setCurrentPage(1); }}
+                options={[
+                  { value: '', label: 'A-Z' },
+                  ...Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(char => ({ value: char, label: char })),
+                  { value: '0-9', label: '(0-9)' }
+                ]}
+                placeholder="A-Z"
+                style={{ minWidth: '80px' }}
+              />
             <GlassSelect
               value={filter}
               onChange={(v) => { setFilter(v); setCurrentPage(1); }}

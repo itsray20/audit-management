@@ -1065,10 +1065,11 @@ app.get('/api/audits/:id/items', async (req, res) => {
   const limit = parseInt(req.query.limit) || 30;
   const search = req.query.search || '';
   const filter = req.query.filter || '';
+  const alphabetFilter = req.query.alphabet || '';
   const supplierFilter = req.query.supplier || '';
   const locationFilter = req.query.location || '';
   const storeFilter = req.query.store || '';
-  const sortBy = req.query.sortBy || 'id'; // default to id (original Excel order)
+  const sortBy = req.query.sortBy || 'item_name'; // default to item_name
   const sortOrder = req.query.sortOrder || 'asc';
   const offset = (page - 1) * limit;
 
@@ -1109,6 +1110,14 @@ app.get('/api/audits/:id/items', async (req, res) => {
         else if (filter === 'Extra Found') filteredList = filteredList.filter(i => i.category === 'Extra Found');
         else if (filter === 'Expired Stock') filteredList = filteredList.filter(i => i.category === 'Expired Stock');
         else if (filter === 'Not Counted') filteredList = filteredList.filter(i => i.auditor_counts.length === 0);
+      }
+
+      if (alphabetFilter) {
+        if (alphabetFilter === '0-9') {
+          filteredList = filteredList.filter(item => /^[0-9]/.test(item.item_name));
+        } else {
+          filteredList = filteredList.filter(item => String(item.item_name || '').toUpperCase().startsWith(alphabetFilter));
+        }
       }
 
       // FIX 2: Spread before sort to avoid mutating the cached array reference
@@ -1290,6 +1299,14 @@ app.get('/api/audits/:id/items', async (req, res) => {
       else if (filter === 'Extra Found') filteredList = filteredList.filter(i => i.category === 'Extra Found');
       else if (filter === 'Expired Stock') filteredList = filteredList.filter(i => i.category === 'Expired Stock');
       else if (filter === 'Not Counted') filteredList = filteredList.filter(i => i.auditor_counts.length === 0);
+    }
+
+    if (alphabetFilter) {
+      if (alphabetFilter === '0-9') {
+        filteredList = filteredList.filter(item => /^[0-9]/.test(item.item_name));
+      } else {
+        filteredList = filteredList.filter(item => String(item.item_name || '').toUpperCase().startsWith(alphabetFilter));
+      }
     }
 
     // FIX 2: Spread before sort to avoid mutating the cached array reference
