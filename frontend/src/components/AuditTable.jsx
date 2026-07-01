@@ -400,6 +400,13 @@ export default function AuditTable({
     if (newPage >= 1 && newPage <= totalPages) setCurrentPage(newPage);
   };
 
+  useEffect(() => {
+    if (tableScrollRef.current) {
+      tableScrollRef.current.scrollTo({ top: 0 });
+    }
+    window.scrollTo({ top: 0 });
+  }, [currentPage]);
+
   const resetFilters = () => {
     setSearch(''); setFilter(''); setAlphabetFilter(''); setSupplierFilter('');
     setLocationFilter(''); setStoreFilter(''); setCurrentPage(1);
