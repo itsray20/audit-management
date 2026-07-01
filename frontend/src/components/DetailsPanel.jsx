@@ -11,7 +11,8 @@ export default function DetailsPanel({
   onClose,
   onUpdate,
   isDark,
-  roleNamesMap = {}
+  roleNamesMap = {},
+  auditMembers = []
 }) {
   const [selectedAuditor, setSelectedAuditor] = useState('');
   const [physicalCount, setPhysicalCount] = useState('');
@@ -21,6 +22,10 @@ export default function DetailsPanel({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  const myMember = auditMembers.find(m => String(m.id) === String(currentUser.id));
+  const isFrozenOrRemoved = myMember && (myMember.status === 'frozen' || myMember.status === 'removed');
+  const isReadOnly = auditIsLocked || isFrozenOrRemoved;
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -36,7 +41,7 @@ export default function DetailsPanel({
 
   const isAdmin = currentUser.role === 'Admin';
   // Column-level check: users (including Admin) can only save counts under their own role column
-  const canEditSelectedAuditor = selectedAuditor === currentUser.role;
+  const canEditSelectedAuditor = String(selectedAuditor) === String(currentUser.id) || (isAdmin && selectedAuditor === 'Admin');
 
   // Initialize panel values when item changes
   useEffect(() => {
@@ -57,10 +62,10 @@ export default function DetailsPanel({
       setEditLocation(item.location || '');
       setEditSupplier(item.supplier || '');
 
-      // Default selected auditor to current user slot
+      // Default selected auditor to current user ID
       if (!isAdmin) {
-        setSelectedAuditor(currentUser.role);
-        const existingCount = (item.auditor_counts || []).find(c => c.auditor_name === currentUser.role);
+        setSelectedAuditor(currentUser.id);
+        const existingCount = (item.auditor_counts || []).find(c => String(c.auditor_name) === String(currentUser.id));
         if (existingCount) {
           setPhysicalCount(String(existingCount.physical_count ?? ''));
           setRemarks(existingCount.remarks || '');
@@ -143,7 +148,7 @@ export default function DetailsPanel({
     }
 
     if (!canEditSelectedAuditor) {
-      setError(`You are only authorized to save counts in the '${currentUser.role}' column.`);
+      setError(`You are only authorized to save counts in your own column.`);
       return;
     }
 
@@ -348,7 +353,8 @@ export default function DetailsPanel({
             <div className="space-y-1">
               <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Target Auditor Column</label>
               <div className="w-full px-3 py-2 rounded-lg text-xs font-bold select-none" style={{ background: 'var(--glass-bg-light)', border: '1px solid var(--glass-border-dim)' }}>
-                {roleNamesMap[currentUser.role] || currentUser.role}
+                {myMember?.name || roleNamesMap[currentUser.role] || currentUser.role}
+                {isFrozenOrRemoved && <span className="ml-2 text-[10px] text-rose-500 font-bold uppercase tracking-wide">({myMember?.status})</span>}
               </div>
             </div>
 
@@ -361,10 +367,10 @@ export default function DetailsPanel({
                 placeholder="Leave blank to clear"
                 value={physicalCount}
                 onChange={(e) => setPhysicalCount(e.target.value)}
-                className="w-full px-3 py-1.5 glass-input focus:outline-none font-mono text-xs"
+                disabled={isReadOnly}
+                className="w-full px-3 py-1.5 glass-input focus:outline-none font-mono text-xs disabled:opacity-50"
               />
             </div>
-
 
             {/* Remarks */}
             <div className="space-y-1">
@@ -374,13 +380,15 @@ export default function DetailsPanel({
                 placeholder="Notes about quality, damaged boxes, etc."
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
-                className="w-full px-3 py-1.5 glass-input focus:outline-none text-xs"
+                disabled={isReadOnly}
+                className="w-full px-3 py-1.5 glass-input focus:outline-none text-xs disabled:opacity-50"
               />
             </div>
 
             <button
               type="submit"
-              className="w-full flex justify-center items-center gap-2 px-3 py-2 btn-glass-primary text-xs"
+              disabled={isReadOnly}
+              className="w-full flex justify-center items-center gap-2 px-3 py-2 btn-glass-primary text-xs disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" />
               Save Count
