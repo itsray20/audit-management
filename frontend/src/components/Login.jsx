@@ -220,12 +220,13 @@ export default function Login({ onLogin }) {
           />
           {/* Centered Modal Card */}
           <div 
-            className="w-full max-w-sm rounded-3xl p-6 text-center relative z-10"
+            className="w-full rounded-3xl p-6 text-center relative z-10"
             style={{ 
               background: 'rgba(30, 30, 32, 0.85)', 
               border: '1px solid rgba(255,255,255,0.08)', 
               boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
               backdropFilter: 'blur(20px)',
+              maxWidth: '300px',
               animation: 'bait-fade-scale 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both'
             }}
           >
