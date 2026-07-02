@@ -7,6 +7,7 @@ const fs = require('fs');
 const { supabase, initDb } = require('./db');
 const { importExcel } = require('./import');
 const { generateExcelBuffer, generateWordReport, calculateItemValues } = require('./export');
+const archiver = require('archiver');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -1999,19 +2000,19 @@ app.get('/api/hospitals/:id/audits/export', async (req, res) => {
       .select('id, name')
       .eq('hospital_id', id);
     if (auditsErr) throw auditsErr;
-    const archiver = require('archiver');
-    const archive = archiver('zip', { zlib: { level: 9 } });
-    res.attachment(`hospital_${id}_audits.zip`);
+    const archive = archiver.create('zip', { zlib: { level: 9 } });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="hospital_${id}_audits.zip"`);
     archive.pipe(res);
-    for (const audit of audits) {
+    for (const audit of (audits || [])) {
       const buffer = await generateExcelBuffer(audit.id);
-      const safeName = audit.name.replace(/[\/"*?<>|\s]/g, '_');
+      const safeName = (audit.name || `audit_${audit.id}`).replace(/[\/"*?<>|\s]/g, '_');
       archive.append(buffer, { name: `${safeName}_audit_${audit.id}.xlsx` });
     }
     await archive.finalize();
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('[ZIP EXPORT ERROR]', err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
