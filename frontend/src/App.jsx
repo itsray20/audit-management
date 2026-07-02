@@ -383,8 +383,14 @@ export default function App() {
         console.log('SSE: Received user update:', data);
 
         if (data.status === 'frozen' || data.status === 'removed') {
-          setSystemModal({ type: data.status });
-          setTimeout(() => handleLogout(), 4000);
+          // Only show the modal if the user is still actively logged in
+          // (guards against stale SSE events firing during reconnect after re-login)
+          setCurrentUser(prev => {
+            if (!prev) return null; // already logged out, do nothing
+            setSystemModal({ type: data.status });
+            setTimeout(() => handleLogout(), 4000);
+            return prev;
+          });
           return;
         }
 
@@ -491,6 +497,7 @@ export default function App() {
 
   const handleLogin = (user) => {
     setCurrentUser(user);
+    setSystemModal(null); // always clear any stale frozen/removed modal on fresh login
     localStorage.setItem('auditUser', JSON.stringify(user));
     axios.defaults.headers.common['x-user-role'] = user.role;
     axios.defaults.headers.common['x-user-name'] = user.name;

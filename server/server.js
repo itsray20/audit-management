@@ -83,10 +83,6 @@ app.get('/api/realtime/stream', async (req, res) => {
     // Send initial comment to establish connection
     res.write(': ok\n\n');
 
-    if (user.status === 'frozen' || user.status === 'removed') {
-      res.write(`event: user_update\ndata: ${JSON.stringify({ status: user.status })}\n\n`);
-      return res.end();
-    }
 
     const clientRecord = {
       userId: String(userId),
