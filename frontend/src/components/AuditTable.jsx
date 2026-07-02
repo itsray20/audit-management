@@ -301,7 +301,8 @@ const InlineCountCell = React.memo(InlineCountCellInner, (prevProps, nextProps) 
     prevProps.rowIdx === nextProps.rowIdx &&
     prevProps.colIdx === nextProps.colIdx &&
     prevProps.currentUser?.id === nextProps.currentUser?.id &&
-    prevProps.currentUser?.role === nextProps.currentUser?.role
+    prevProps.currentUser?.role === nextProps.currentUser?.role &&
+    prevProps.isOnAudit === nextProps.isOnAudit
   );
 });
 
