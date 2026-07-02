@@ -289,7 +289,7 @@ export default function Login({ onLogin }) {
                 boxShadow: '0 4px 12px rgba(0,122,255,0.3)'
               }}
             >
-              Hau bhai, galti ho gayi! (Run away)
+              Hau bhai, galti ho gayi!
             </button>
           </div>
         </div>
