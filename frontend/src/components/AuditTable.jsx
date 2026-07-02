@@ -345,6 +345,7 @@ export default function AuditTable({
   sortOrder,
   setSortOrder,
   auditMembers = [],
+  isDark,
 }) {
   const [bulkEditMode, setBulkEditMode] = useState(false);
   const [showJoinAuditWarning, setShowJoinAuditWarning] = useState(false);
