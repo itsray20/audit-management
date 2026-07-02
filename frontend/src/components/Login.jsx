@@ -270,10 +270,11 @@ export default function Login({ onLogin }) {
                 WebkitTextFillColor: 'transparent'
               }}
             >
-              Kaiku re ustaad?! 🤔
+              Kaiku re ustaad?!
             </h3>
+            <div className="text-3xl my-2">🍆</div>
             <h4 className="text-zinc-400 font-bold text-xs uppercase tracking-widest mb-4">
-              Baigan ke baataan nako karo! 🍆
+              "Baigan ke baataan nako karo!"
             </h4>
             <p className="text-sm mb-6 text-zinc-300 leading-relaxed font-medium font-mono">
               Developer ka account hack karre? Itte kharab halaat ho gaye tumhare? 😭
