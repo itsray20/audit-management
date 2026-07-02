@@ -212,6 +212,18 @@ export default function Login({ onLogin }) {
               from { opacity: 0; transform: scale(0.93); }
               to { opacity: 1; transform: scale(1); }
             }
+            @keyframes suspicious-look {
+              0%, 100% { transform: translate(0, 0); }
+              15% { transform: translate(-7px, -3px); }
+              30% { transform: translate(7px, 3px); }
+              45% { transform: translate(-5px, 5px); }
+              60% { transform: translate(5px, -5px); }
+              75% { transform: translate(0, -6px); }
+              90% { transform: translate(0, 6px); }
+            }
+            .animate-suspicious-eyes {
+              animation: suspicious-look 3.5s ease-in-out infinite;
+            }
           `}</style>
           {/* Backdrop Overlay */}
           <div 
@@ -222,30 +234,52 @@ export default function Login({ onLogin }) {
           <div 
             className="w-full rounded-3xl p-6 text-center relative z-10"
             style={{ 
-              background: 'rgba(30, 30, 32, 0.85)', 
+              background: 'rgba(30, 30, 32, 0.92)', 
               border: '1px solid rgba(255,255,255,0.08)', 
               boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
               backdropFilter: 'blur(20px)',
-              maxWidth: '350px',
+              maxWidth: '380px',
               animation: 'bait-fade-scale 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both'
             }}
           >
-            <div 
-              className="h-16 w-16 rounded-2xl flex items-center justify-center mx-auto mb-4" 
-              style={{ 
-                background: 'linear-gradient(135deg, #FF3B30, #FF9500)', 
-                color: '#fff',
-                boxShadow: '0 8px 24px rgba(255,59,48,0.3)'
+            {/* Suspicious Eye-tracking Animation */}
+            <div className="flex justify-center gap-3.5 mb-5 mt-2">
+              <div 
+                className="w-12 h-12 rounded-full bg-white border-2 border-zinc-700 flex items-center justify-center relative overflow-hidden"
+                style={{ boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.2)' }}
+              >
+                <div className="w-5 h-5 rounded-full bg-zinc-900 absolute animate-suspicious-eyes flex items-center justify-center">
+                  <div className="w-1.5 h-1.5 rounded-full bg-white absolute top-1 left-1" />
+                </div>
+              </div>
+              <div 
+                className="w-12 h-12 rounded-full bg-white border-2 border-zinc-700 flex items-center justify-center relative overflow-hidden"
+                style={{ boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.2)' }}
+              >
+                <div className="w-5 h-5 rounded-full bg-zinc-900 absolute animate-suspicious-eyes flex items-center justify-center">
+                  <div className="w-1.5 h-1.5 rounded-full bg-white absolute top-1 left-1" />
+                </div>
+              </div>
+            </div>
+
+            <h3 
+              className="font-black text-2xl mb-1 leading-none tracking-tight"
+              style={{
+                background: 'linear-gradient(135deg, #FF6B35, #F59E0B)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent'
               }}
             >
-              <span className="text-3xl">💻</span>
-            </div>
-            <h3 className="font-extrabold text-xl mb-2 text-white leading-tight tracking-tight">
-              Nice Try! 🚨
+              Baigan ke baataan nako karo! 🍆
             </h3>
-            <p className="text-sm mb-6 text-zinc-300 leading-relaxed font-medium">
-              Did you really think you could hack the Developer's account? 
-              <span className="block mt-2 font-normal text-zinc-400">Rohan's vault is protected by ancient runes and quantum encryption. Go log in as yourself! 😉</span>
+            <h4 className="text-zinc-400 font-bold text-xs uppercase tracking-widest mb-4">
+              Kaiku re ustaad?! 🤔
+            </h4>
+            <p className="text-sm mb-6 text-zinc-300 leading-relaxed font-medium font-mono">
+              Developer ka account hack karre? Itte kharab halaat ho gaye tumhare? 😭
+              <span className="block mt-3 text-xs text-zinc-400 font-normal border-t border-white/5 pt-3 font-sans">
+                Ab chup-chaap apna account kholo aur kaam pe lago, nai toh <b>Rohan bhaiya</b> tumhara biryani ka hissa cut kar dete! 🍲❌
+              </span>
             </p>
             <button 
               onClick={() => setShowDeveloperBaitModal(false)} 
@@ -255,7 +289,7 @@ export default function Login({ onLogin }) {
                 boxShadow: '0 4px 12px rgba(0,122,255,0.3)'
               }}
             >
-              Okay, I apologize!
+              Hau bhai, galti ho gayi! (Run away)
             </button>
           </div>
         </div>
