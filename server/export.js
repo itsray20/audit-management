@@ -112,30 +112,7 @@ const generateExcelBuffer = async (sessionId) => {
 
   const sessionDate = session.audit_date;
 
-  // 2. Load all items & counts
-  let allItems = [];
-  let pageNum = 0;
-  const pageSize = 1000;
-  while (true) {
-    const { data, error } = await supabase
-      .from('items')
-      .select('*')
-      .eq('audit_session_id', sessionId)
-      .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1)
-      .order('id', { ascending: true });
-      
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    allItems = allItems.concat(data);
-    if (data.length < pageSize) break;
-    pageNum++;
-  }
-  const items = allItems;
-
-  const itemIds = (items || []).map(i => i.id);
-  const allCounts = await fetchCountsInChunks(itemIds);
-
-  // 3. Build dynamic auditor columns list from database
+  // 2. Build dynamic auditor columns list from database (lightweight query)
   const { data: auditMembers } = await supabase
     .from('audit_members')
     .select('*')
@@ -144,11 +121,10 @@ const generateExcelBuffer = async (sessionId) => {
   const userIds = (auditMembers || []).map(m => m.user_id);
   const userMap = {};
   if (userIds.length > 0) {
-    const { data: usersData } = await supabase.from('users').select('*').in('id', userIds);
+    const { data: usersData } = await supabase.from('users').select('id, name, display_name, username').in('id', userIds);
     (usersData || []).forEach(u => {
       const parts = (u.name || '').split('|');
-      const cleanName = u.display_name || parts[0] || u.username;
-      userMap[u.id] = cleanName;
+      userMap[u.id] = u.display_name || parts[0] || u.username;
     });
   }
 
@@ -159,228 +135,84 @@ const generateExcelBuffer = async (sessionId) => {
     is_virtual: false
   }));
 
-  // Group counts by item ID
-  const countsByItem = {};
-  (allCounts || []).forEach(c => {
-    if (!countsByItem[c.item_id]) countsByItem[c.item_id] = [];
-    countsByItem[c.item_id].push(c);
-  });
+  // Discover virtual auditor columns from a lightweight distinct query
+  const { data: virtualAuditors } = await supabase
+    .from('auditor_counts')
+    .select('auditor_name')
+    .not('auditor_name', 'like', 'Physical Quantity%');
 
-  // Append virtual/imported counts
-  const countAuditors = Array.from(new Set((allCounts || []).map(c => String(c.auditor_name))));
   const existingColumnIds = new Set(columns.map(c => c.id));
-  
-  countAuditors.forEach(auditorName => {
-    if (auditorName.startsWith('Physical Quantity')) return;
-    if (!existingColumnIds.has(auditorName)) {
-      columns.push({
-        id: auditorName,
-        name: auditorName,
-        status: 'active',
-        is_virtual: true
-      });
+  const seenVirtual = new Set();
+  (virtualAuditors || []).forEach(r => {
+    const name = String(r.auditor_name);
+    if (!existingColumnIds.has(name) && !seenVirtual.has(name)) {
+      seenVirtual.add(name);
+      columns.push({ id: name, name, status: 'active', is_virtual: true });
     }
   });
 
-  // Sort columns: real members first, then virtual columns
   columns.sort((a, b) => {
     if (a.is_virtual && !b.is_virtual) return 1;
     if (!a.is_virtual && b.is_virtual) return -1;
-    if (a.is_virtual && b.is_virtual) {
-      return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
-    }
+    if (a.is_virtual && b.is_virtual) return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
     return Number(a.id || 0) - Number(b.id || 0);
   });
 
   const ALLOWED_AUDITORS = columns.map(c => c.id);
 
-  // 4. Calculate everything
-  const processedItems = (items || []).map(item => {
-    const itemCounts = countsByItem[item.id] || [];
-    return calculateItemValues(item, itemCounts, sessionDate, ALLOWED_AUDITORS);
-  });
-
-  // 5. Summary value calculations
-  const totalStockVal   = processedItems.reduce((s, i) => s + (i.system_qty * i.unit_purchase_rate), 0);
-  const excessVal       = processedItems.filter(i => i.category === 'Excess').reduce((s, i) => s + i.differenceValue, 0);
-  const shortageVal     = processedItems.filter(i => i.category === 'Shortage').reduce((s, i) => s + i.differenceValue, 0);
-  const extraFoundVal   = processedItems.filter(i => i.category === 'Extra Found').reduce((s, i) => s + (i.totalPhysical * i.unit_purchase_rate), 0);
-  const expiredVal      = processedItems.filter(i => i.category === 'Expired Stock').reduce((s, i) => s + (i.totalPhysical * i.unit_purchase_rate), 0);
-  const otVal           = processedItems.filter(i => i.category === 'Other').reduce((s, i) => s + i.differenceValue, 0);
-  const grossShortage   = shortageVal;
-  const netShortage     = grossShortage + extraFoundVal;
-
-  const totalSystemExpiryVal = processedItems.filter(i => i.expiryStatus === 'EXPIRED').reduce((s, i) => s + ((i.system_qty || 0) * (i.unit_purchase_rate || 0)), 0);
-  const totalPhysicalExpiryVal = processedItems.filter(i => i.expiryStatus === 'EXPIRED').reduce((s, i) => s + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
-  const totalPerfectMatchVal = processedItems.filter(i => i.isCounted && (i.totalPhysical || 0) === (i.system_qty || 0)).reduce((s, i) => s + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
-
+  // 3. Set up workbook & sheets upfront (before data pass)
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Pharmacy Audit App';
-  workbook.lastModifiedBy = 'Pharmacy Audit App';
   workbook.created = new Date();
   workbook.modified = new Date();
 
-  // Style constants
   const fontName = 'Segoe UI';
-  const themeBlue = 'FF1E3A8A'; // Dark blue (Tailwind blue-900)
+  const themeBlue = 'FF1E3A8A';
   const headerFontColor = 'FFFFFFFF';
-  const zebraColor = 'FFF9FAFB'; // Light grey/white zebra
-  const totalRowColor = 'FFEBF2FA'; // Soft blue highlight for totals row
+  const zebraColor = 'FFF9FAFB';
+  const totalRowColor = 'FFEBF2FA';
 
   const applyBaseFormatting = (ws, isSummary = false) => {
-    // Enable gridlines
     ws.views = [{ showGridLines: true }];
-
-    // Header Row formatting
     const headerRow = ws.getRow(1);
     headerRow.height = 28;
     headerRow.eachCell((cell) => {
-      cell.font = {
-        name: fontName,
-        size: 10,
-        bold: true,
-        color: { argb: headerFontColor }
-      };
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: themeBlue }
-      };
-      cell.alignment = {
-        vertical: 'middle',
-        horizontal: cell.value === 'Item Name' || cell.value === 'Audit Report' ? 'left' : 'center',
-        wrapText: true
-      };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-        bottom: { style: 'medium', color: { argb: themeBlue } },
-        left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-        right: { style: 'thin', color: { argb: 'FFD1D5DB' } }
-      };
+      cell.font = { name: fontName, size: 10, bold: true, color: { argb: headerFontColor } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: themeBlue } };
+      cell.alignment = { vertical: 'middle', horizontal: cell.value === 'Item Name' || cell.value === 'Audit Report' ? 'left' : 'center', wrapText: true };
+      cell.border = { top: { style: 'thin', color: { argb: 'FFD1D5DB' } }, bottom: { style: 'medium', color: { argb: themeBlue } }, left: { style: 'thin', color: { argb: 'FFD1D5DB' } }, right: { style: 'thin', color: { argb: 'FFD1D5DB' } } };
     });
-
     if (!isSummary) {
-      // Freeze header row
-      ws.views = [
-        { state: 'frozen', xSplit: 0, ySplit: 1, activeCell: 'A2', showGridLines: true }
-      ];
+      ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 1, activeCell: 'A2', showGridLines: true }];
     }
-
-    // Body formatting
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-
       const isEven = rowNumber % 2 === 0;
       const firstCellVal = String(row.getCell(1).value || '').toLowerCase();
       const isTotalRow = firstCellVal === 'total' || firstCellVal === 'totals';
-
       row.height = isTotalRow ? 24 : 20;
-
       row.eachCell((cell, colNumber) => {
-        // Alignment
         const colHeader = String(ws.getRow(1).getCell(colNumber).value || '');
         let horiz = 'center';
-        if (colHeader === 'Item Name' || colHeader === 'Audit Report') {
-          horiz = 'left';
-        } else if (
-          colHeader === 'Pruchase rate' ||
-          colHeader === 'Selling rate' ||
-          colHeader === 'Difference  value' ||
-          colHeader === 'Batch Available Quantity' ||
-          colHeader === 'Total' ||
-          colHeader === 'Difference' ||
-          colHeader === 'Value'
-        ) {
-          horiz = 'right';
-        }
-
-        cell.alignment = {
-          vertical: 'middle',
-          horizontal: horiz
-        };
-
-        // Font and Border
+        if (colHeader === 'Item Name' || colHeader === 'Audit Report') horiz = 'left';
+        else if (['Pruchase rate','Selling rate','Difference  value','Batch Available Quantity','Total','Difference','Value'].includes(colHeader)) horiz = 'right';
+        cell.alignment = { vertical: 'middle', horizontal: horiz };
         if (isTotalRow) {
-          cell.font = {
-            name: fontName,
-            size: 9.5,
-            bold: true,
-            color: { argb: 'FF111827' }
-          };
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: totalRowColor }
-          };
-          cell.border = {
-            top: { style: 'thin', color: { argb: 'FF9CA3AF' } },
-            bottom: { style: 'double', color: { argb: 'FF111827' } },
-            left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-            right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
-          };
+          cell.font = { name: fontName, size: 9.5, bold: true, color: { argb: 'FF111827' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: totalRowColor } };
+          cell.border = { top: { style: 'thin', color: { argb: 'FF9CA3AF' } }, bottom: { style: 'double', color: { argb: 'FF111827' } }, left: { style: 'thin', color: { argb: 'FFE5E7EB' } }, right: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
         } else {
-          cell.font = {
-            name: fontName,
-            size: 9.5,
-            color: { argb: 'FF374151' }
-          };
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: isEven ? zebraColor : 'FFFFFFFF' }
-          };
-          cell.border = {
-            top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-            bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-            left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-            right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
-          };
+          cell.font = { name: fontName, size: 9.5, color: { argb: 'FF374151' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? zebraColor : 'FFFFFFFF' } };
+          cell.border = { top: { style: 'thin', color: { argb: 'FFE5E7EB' } }, bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } }, left: { style: 'thin', color: { argb: 'FFE5E7EB' } }, right: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
         }
-
-        // Formatting types
-        if (colHeader === 'Pruchase rate' || colHeader === 'Selling rate' || colHeader === 'Difference  value') {
-          cell.numFmt = '#,##0.00';
-        } else if (colHeader === 'Batch Available Quantity' || colHeader === 'Total' || colHeader === 'Difference') {
-          cell.numFmt = '#,##0';
-        }
+        if (['Pruchase rate','Selling rate','Difference  value'].includes(colHeader)) cell.numFmt = '#,##0.00';
+        else if (['Batch Available Quantity','Total','Difference'].includes(colHeader)) cell.numFmt = '#,##0';
       });
     });
   };
 
-  // ── Sheet 1: Report (Summary) ───────────────────────────────
-  const wsSummary = workbook.addWorksheet('Report');
-  wsSummary.columns = [
-    { header: 'Audit Report', key: 'reportKey', width: 24 },
-    { header: 'Value', key: 'reportVal', width: 18 }
-  ];
-
-  const summaryRows = [
-    { reportKey: 'Total Stock',   reportVal: totalStockVal },
-    { reportKey: 'Excess',        reportVal: excessVal },
-    { reportKey: 'Shortage',      reportVal: shortageVal },
-    { reportKey: '',              reportVal: '' },
-    { reportKey: 'Gross Shortage',reportVal: grossShortage },
-    { reportKey: 'Extra found',   reportVal: extraFoundVal },
-    { reportKey: '',              reportVal: '' },
-    { reportKey: 'OT Present value', reportVal: otVal },
-    { reportKey: '',              reportVal: '' },
-    { reportKey: 'Total System Expiry', reportVal: totalSystemExpiryVal },
-    { reportKey: 'Total Physical Expiry', reportVal: totalPhysicalExpiryVal },
-    { reportKey: 'Total Perfect Match', reportVal: totalPerfectMatchVal },
-  ];
-  wsSummary.addRows(summaryRows);
-  applyBaseFormatting(wsSummary, true);
-
-  // Customize Report Values formatting to Currency
-  wsSummary.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const cellVal = row.getCell(2);
-    if (cellVal.value !== '' && cellVal.value !== null && cellVal.value !== undefined) {
-      cellVal.numFmt = '₹#,##0.00';
-    }
-  });
-
-  // ── Sheet 2: standard sheet ────────────────────────────────
+  // Main detail sheet
   const wsStd = workbook.addWorksheet('standard sheet');
   const stdColumns = [
     { header: 'Item Name', key: 'itemName', width: 38 },
@@ -390,10 +222,7 @@ const generateExcelBuffer = async (sessionId) => {
     { header: 'Selling rate', key: 'sellingRate', width: 14 },
     { header: 'Batch Available Quantity', key: 'availQty', width: 24 },
   ];
-  // Add columns dynamically for each auditor
-  columns.forEach(col => {
-    stdColumns.push({ header: col.name, key: `col_${col.id}`, width: 14 });
-  });
+  columns.forEach(col => { stdColumns.push({ header: col.name, key: `col_${col.id}`, width: 14 }); });
   stdColumns.push(
     { header: 'Total', key: 'total', width: 10 },
     { header: 'Difference', key: 'difference', width: 12 },
@@ -401,46 +230,135 @@ const generateExcelBuffer = async (sessionId) => {
   );
   wsStd.columns = stdColumns;
 
-  // Add Data Rows
-  const totalStockRows = processedItems.map(item => {
-    const row = {
-      itemName: item.item_name,
-      batch: item.batch_no,
-      expiry: item.expiry_date || '',
-      purchaseRate: item.unit_purchase_rate,
-      sellingRate: item.unit_mrp,
-      availQty: item.system_qty,
-    };
-    columns.forEach(col => {
-      const itemCounts = countsByItem[item.id] || [];
-      const match = itemCounts.find(c => String(c.auditor_name) === String(col.id));
-      row[`col_${col.id}`] = match ? Number(match.physical_count) : '';
-    });
-    row.total = item.totalPhysical;
-    row.difference = item.difference;
-    row.differenceValue = item.differenceValue;
-    return row;
-  });
-  wsStd.addRows(totalStockRows);
+  // 4. ── STREAMING PASS: process items 500 at a time ──────────────
+  // Summary accumulators — updated incrementally, never stored as array
+  let totalStockVal = 0, excessVal = 0, shortageVal = 0, extraFoundVal = 0;
+  let expiredVal = 0, otVal = 0;
+  let totalSystemExpiryVal = 0, totalPhysicalExpiryVal = 0, totalPerfectMatchVal = 0;
+  let sumSysQty = 0, sumPhysical = 0, sumDifference = 0, sumDiffVal = 0;
 
-  // Add totals footer
+  // Category sub-sheets only hold items in their category (much smaller)
+  const excessRows = [], shortageRows = [], extraFoundRows = [], expiredRows = [], otRows = [];
+
+  const buildSubRow = (item) => ({
+    itemName: item.item_name, batch: item.batch_no, expiry: item.expiry_date || '',
+    purchaseRate: item.unit_purchase_rate, sellingRate: item.unit_mrp,
+    availQty: item.system_qty, total: item.totalPhysical,
+    difference: item.difference, differenceValue: item.differenceValue
+  });
+
+  const PAGE_SIZE = 500;
+  let pageNum = 0;
+
+  while (true) {
+    // Load one page of items
+    const { data: pageItems, error: pageErr } = await supabase
+      .from('items')
+      .select('*')
+      .eq('audit_session_id', sessionId)
+      .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1)
+      .order('id', { ascending: true });
+
+    if (pageErr) throw pageErr;
+    if (!pageItems || pageItems.length === 0) break;
+
+    // Load counts only for this page's items
+    const pageIds = pageItems.map(i => i.id);
+    const pageCounts = await fetchCountsInChunks(pageIds);
+    const countsByItem = {};
+    pageCounts.forEach(c => {
+      if (!countsByItem[c.item_id]) countsByItem[c.item_id] = [];
+      countsByItem[c.item_id].push(c);
+    });
+
+    // Process each item and write row directly to sheet
+    for (const item of pageItems) {
+      const itemCounts = countsByItem[item.id] || [];
+      const p = calculateItemValues(item, itemCounts, sessionDate, ALLOWED_AUDITORS);
+
+      // Build and add detail row immediately — no intermediate array
+      const row = {
+        itemName: p.item_name, batch: p.batch_no, expiry: p.expiry_date || '',
+        purchaseRate: p.unit_purchase_rate, sellingRate: p.unit_mrp, availQty: p.system_qty,
+      };
+      columns.forEach(col => {
+        const match = itemCounts.find(c => String(c.auditor_name) === String(col.id));
+        row[`col_${col.id}`] = match ? Number(match.physical_count) : '';
+      });
+      row.total = p.totalPhysical;
+      row.difference = p.difference;
+      row.differenceValue = p.differenceValue;
+      wsStd.addRow(row);
+
+      // Accumulate summary numbers
+      totalStockVal += (p.system_qty * p.unit_purchase_rate);
+      sumSysQty     += (Number(p.system_qty) || 0);
+      sumPhysical   += (p.totalPhysical || 0);
+      sumDifference += (p.difference || 0);
+      sumDiffVal    += (p.differenceValue || 0);
+      if (p.category === 'Excess')       { excessVal  += p.differenceValue; excessRows.push(buildSubRow(p)); }
+      if (p.category === 'Shortage')     { shortageVal += p.differenceValue; shortageRows.push(buildSubRow(p)); }
+      if (p.category === 'Extra Found')  { extraFoundVal += (p.totalPhysical * p.unit_purchase_rate); extraFoundRows.push(buildSubRow(p)); }
+      if (p.category === 'Expired Stock'){ expiredVal  += (p.totalPhysical * p.unit_purchase_rate); expiredRows.push(buildSubRow(p)); }
+      if (p.category === 'Other')        { otVal       += p.differenceValue; otRows.push(buildSubRow(p)); }
+      if (p.expiryStatus === 'EXPIRED')  { totalSystemExpiryVal   += ((p.system_qty || 0) * (p.unit_purchase_rate || 0)); totalPhysicalExpiryVal += ((p.totalPhysical || 0) * (p.unit_purchase_rate || 0)); }
+      if (p.isCounted && (p.totalPhysical || 0) === (p.system_qty || 0)) totalPerfectMatchVal += ((p.totalPhysical || 0) * (p.unit_purchase_rate || 0));
+    }
+
+    const fetchedCount = pageItems.length; // save BEFORE clearing
+
+    // Help GC release the large page arrays
+    pageItems.length = 0;
+    pageCounts.length = 0;
+
+    if (fetchedCount < PAGE_SIZE) break; // last page — stop
+    pageNum++;
+  }
+
+  // Add totals footer to detail sheet
   const totalFooter = {
-    itemName: 'Total',
-    batch: '',
-    expiry: '',
-    purchaseRate: '',
-    sellingRate: '',
-    availQty: processedItems.reduce((s, i) => s + (Number(i.system_qty) || 0), 0),
+    itemName: 'Total', batch: '', expiry: '', purchaseRate: '', sellingRate: '', availQty: sumSysQty,
   };
   columns.forEach(col => { totalFooter[`col_${col.id}`] = ''; });
-  totalFooter.total = processedItems.reduce((s, i) => s + (i.totalPhysical || 0), 0);
-  totalFooter.difference = processedItems.reduce((s, i) => s + (i.difference || 0), 0);
+  totalFooter.total = sumPhysical;
+  totalFooter.difference = sumDifference;
   totalFooter.differenceValue = excessVal + shortageVal + extraFoundVal + otVal;
   wsStd.addRow(totalFooter);
-
   applyBaseFormatting(wsStd, false);
 
-  // Helper for Category Sheets
+  // 5. Summary sheet (now we have all totals)
+  const grossShortage = shortageVal;
+  const netShortage   = grossShortage + extraFoundVal;
+
+  const wsSummary = workbook.addWorksheet('Report', { id: 1 }); // insert before detail
+  wsSummary.columns = [
+    { header: 'Audit Report', key: 'reportKey', width: 24 },
+    { header: 'Value', key: 'reportVal', width: 18 }
+  ];
+  wsSummary.addRows([
+    { reportKey: 'Total Stock',           reportVal: totalStockVal },
+    { reportKey: 'Excess',                reportVal: excessVal },
+    { reportKey: 'Shortage',              reportVal: shortageVal },
+    { reportKey: '',                      reportVal: '' },
+    { reportKey: 'Gross Shortage',        reportVal: grossShortage },
+    { reportKey: 'Extra found',           reportVal: extraFoundVal },
+    { reportKey: '',                      reportVal: '' },
+    { reportKey: 'OT Present value',      reportVal: otVal },
+    { reportKey: '',                      reportVal: '' },
+    { reportKey: 'Total System Expiry',   reportVal: totalSystemExpiryVal },
+    { reportKey: 'Total Physical Expiry', reportVal: totalPhysicalExpiryVal },
+    { reportKey: 'Total Perfect Match',   reportVal: totalPerfectMatchVal },
+  ]);
+  applyBaseFormatting(wsSummary, true);
+  wsSummary.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const cellVal = row.getCell(2);
+    if (cellVal.value !== '' && cellVal.value !== null && cellVal.value !== undefined) {
+      cellVal.numFmt = '₹#,##0.00';
+    }
+  });
+
+  // 6. Category sub-sheets
   const addCategorySheet = (sheetName, rowsList, totalValueVal) => {
     const ws = workbook.addWorksheet(sheetName);
     ws.columns = [
@@ -454,57 +372,22 @@ const generateExcelBuffer = async (sessionId) => {
       { header: 'Difference', key: 'difference', width: 12 },
       { header: 'Difference  value', key: 'differenceValue', width: 18 }
     ];
-
     if (rowsList.length > 0) {
       ws.addRows(rowsList);
-      ws.addRow({
-        itemName: 'Total',
-        batch: '',
-        expiry: '',
-        purchaseRate: '',
-        sellingRate: '',
-        availQty: '',
-        total: '',
-        difference: '',
-        differenceValue: totalValueVal
-      });
+      ws.addRow({ itemName: 'Total', batch: '', expiry: '', purchaseRate: '', sellingRate: '', availQty: '', total: '', difference: '', differenceValue: totalValueVal });
     } else {
       ws.addRow({ itemName: 'No items' });
     }
     applyBaseFormatting(ws, false);
   };
 
-  // Build Sub-sheet row lists
-  const buildSubRow = (item) => ({
-    itemName: item.item_name,
-    batch: item.batch_no,
-    expiry: item.expiry_date || '',
-    purchaseRate: item.unit_purchase_rate,
-    sellingRate: item.unit_mrp,
-    availQty: item.system_qty,
-    total: item.totalPhysical,
-    difference: item.difference,
-    differenceValue: item.differenceValue
-  });
-
-  const excessRows     = processedItems.filter(i => i.category === 'Excess').map(buildSubRow);
-  const shortageRows   = processedItems.filter(i => i.category === 'Shortage').map(buildSubRow);
-  const extraFoundRows = processedItems.filter(i => i.category === 'Extra Found').map(buildSubRow);
-  const expiredRows    = processedItems.filter(i => i.category === 'Expired Stock').map(buildSubRow);
-  const otRows         = processedItems.filter(i => i.category === 'Other').map(buildSubRow);
-
   addCategorySheet('Excess', excessRows, excessVal);
   addCategorySheet('Shortage', shortageRows, shortageVal);
   addCategorySheet('Extra Found', extraFoundRows, extraFoundVal);
+  if (otRows.length > 0)      addCategorySheet('OT',  otRows,      otVal);
+  if (expiredRows.length > 0) addCategorySheet('Exp', expiredRows, expiredVal);
 
-  if (otRows.length > 0) {
-    addCategorySheet('OT', otRows, otVal);
-  }
-  if (expiredRows.length > 0) {
-    addCategorySheet('Exp', expiredRows, expiredVal);
-  }
-
-  // 8. Write to buffer
+  // 7. Write to buffer
   const buffer = await workbook.xlsx.writeBuffer();
   return buffer;
 };
