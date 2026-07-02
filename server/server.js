@@ -25,6 +25,66 @@ app.use(express.json());
 // In-memory tracking of active/online users based on HTTP requests headers
 const userActivityMap = new Map();
 
+// SSE Client Registry for real-time updates
+const sseClients = new Map(); // userId (string) -> Set of Express Response objects
+
+// Broadcast helper for SSE
+const sendRealtimeUpdate = (userId, eventType, data) => {
+  const clients = sseClients.get(String(userId));
+  if (clients && clients.size > 0) {
+    const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const client of clients) {
+      try {
+        client.write(payload);
+      } catch (err) {
+        console.error(`Failed to write SSE to user ${userId}:`, err.message);
+      }
+    }
+  }
+};
+
+// SSE streaming endpoint
+app.get('/api/realtime/stream', (req, res) => {
+  const userId = req.query.userId;
+  if (!userId) {
+    return res.status(400).send('userId is required');
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+
+  // Send initial comment to establish connection
+  res.write(': ok\n\n');
+
+  // Keep-alive ping interval
+  const pingInterval = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch (err) {
+      // client connection already closed or broken
+    }
+  }, 30000);
+
+  if (!sseClients.has(String(userId))) {
+    sseClients.set(String(userId), new Set());
+  }
+  sseClients.get(String(userId)).add(res);
+
+  req.on('close', () => {
+    clearInterval(pingInterval);
+    const clients = sseClients.get(String(userId));
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) {
+        sseClients.delete(String(userId));
+      }
+    }
+  });
+});
+
 // Session cache to prevent repeated database hits on large items tables
 const sessionCache = new Map();
 const clearSessionCache = (sessionId) => {
@@ -535,6 +595,8 @@ app.put('/api/users/:id/status', async (req, res) => {
     } else if (error) {
       throw error;
     }
+    // Send realtime update for user status
+    sendRealtimeUpdate(id, 'user_update', { status });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -656,6 +718,11 @@ app.put('/api/users/:id', async (req, res) => {
         throw updateErr;
       }
     }
+    // Send realtime update for user role/name
+    sendRealtimeUpdate(id, 'user_update', {
+      role: newRole,
+      name: newName
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -705,6 +772,8 @@ app.delete('/api/users/:id', async (req, res) => {
     }
     const { error } = await supabase.from('users').delete().eq('id', id);
     if (error) throw error;
+    // Send realtime update for user deleted/removed
+    sendRealtimeUpdate(id, 'user_update', { status: 'removed' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1314,6 +1383,11 @@ app.put('/api/audits/:id/members/:userId', async (req, res) => {
       .select()
       .single();
     if (error) throw error;
+    // Send realtime update for audit member status change
+    sendRealtimeUpdate(userId, 'audit_member_update', {
+      audit_session_id: parseInt(id),
+      status: status
+    });
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });

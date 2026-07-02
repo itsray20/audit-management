@@ -281,6 +281,71 @@ export default function App() {
     }
   }, [activeSession, currentUser]);
 
+  // Real-time updates via Server-Sent Events (SSE)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const sseUrl = getAbsoluteUrl(`/api/realtime/stream?userId=${currentUser.id}`);
+    console.log('Connecting to real-time update stream:', sseUrl);
+    const eventSource = new EventSource(sseUrl);
+
+    eventSource.addEventListener('user_update', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        console.log('SSE: Received user update:', data);
+
+        if (data.status === 'frozen' || data.status === 'removed') {
+          alert(data.status === 'frozen'
+            ? 'Your account has been frozen by the administrator. You will be logged out.'
+            : 'Your account has been removed by the administrator. You will be logged out.');
+          handleLogout();
+          return;
+        }
+
+        setCurrentUser(prev => {
+          if (!prev) return null;
+          const updated = {
+            ...prev,
+            role: data.role !== undefined ? data.role : prev.role,
+            name: data.name !== undefined ? data.name : prev.name,
+            status: data.status !== undefined ? data.status : prev.status,
+            isFrozen: data.status !== undefined ? (data.status === 'frozen') : prev.isFrozen
+          };
+          localStorage.setItem('auditUser', JSON.stringify(updated));
+
+          // Sync Axios headers with the updated role and name
+          if (data.role) axios.defaults.headers.common['x-user-role'] = data.role;
+          if (data.name) axios.defaults.headers.common['x-user-name'] = data.name;
+
+          return updated;
+        });
+      } catch (err) {
+        console.error('Error processing user_update event:', err);
+      }
+    });
+
+    eventSource.addEventListener('audit_member_update', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        console.log('SSE: Received audit member update:', data);
+        if (activeSession && String(data.audit_session_id) === String(activeSession.id)) {
+          fetchAuditMembers();
+        }
+      } catch (err) {
+        console.error('Error processing audit_member_update event:', err);
+      }
+    });
+
+    eventSource.onerror = (err) => {
+      console.error('SSE: Connection error or closed, retrying...', err);
+    };
+
+    return () => {
+      console.log('SSE: Closing connection.');
+      eventSource.close();
+    };
+  }, [currentUser?.id, activeSession?.id]);
+
   useEffect(() => {
     if (activeSession && currentUser) {
       fetchItems();
@@ -1891,7 +1956,7 @@ export default function App() {
                       auditColumns={auditColumns}
                       roleNamesMap={roleNamesMap}
                       currentUser={currentUser}
-                      auditIsLocked={auditIsLocked || (userAuditFrozen && !userPrivileged)}
+                      auditIsLocked={auditIsLocked || (userAuditFrozen && !userPrivileged) || userIsFrozen}
                       onCountSaved={handleCountSaved}
                       onCountSyncReady={handleCountSyncReady}
                       activeSession={activeSession}
@@ -1906,7 +1971,7 @@ export default function App() {
                     <QuickAddPage
                       sessionId={activeSession.id}
                       currentUser={currentUser}
-                      auditIsLocked={auditIsLocked || (userAuditFrozen && !userPrivileged)}
+                      auditIsLocked={auditIsLocked || (userAuditFrozen && !userPrivileged) || userIsFrozen}
                       onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }}
                     />
                   )}
@@ -1915,7 +1980,7 @@ export default function App() {
                     <ExtraFoundForm
                       sessionId={activeSession.id}
                       currentUser={currentUser}
-                      auditIsLocked={auditIsLocked}
+                      auditIsLocked={auditIsLocked || userIsFrozen}
                       onSuccess={() => { fetchItems(); fetchDashboardMetrics(); }}
                     />
                   )}
@@ -2736,7 +2801,7 @@ export default function App() {
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="overflow-y-auto flex-1 custom-scrollbar">
-                        <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} auditMembers={auditMembers} />
+                        <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked || (userAuditFrozen && !userPrivileged) || userIsFrozen} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} auditMembers={auditMembers} />
                       </div>
                     </div>
                   </div>,
