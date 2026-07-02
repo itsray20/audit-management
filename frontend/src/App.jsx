@@ -168,6 +168,7 @@ export default function App() {
   
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [systemModal, setSystemModal] = useState(null); // { type: 'frozen'|'removed'|'added', sessionId? }
+  const [modalCountdown, setModalCountdown] = useState(15);
   const [sessionValidationErrors, setSessionValidationErrors] = useState([]);
   const [showReopenModal, setShowReopenModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -387,8 +388,9 @@ export default function App() {
           // (guards against stale SSE events firing during reconnect after re-login)
           setCurrentUser(prev => {
             if (!prev) return null; // already logged out, do nothing
+            setModalCountdown(15);
             setSystemModal({ type: data.status });
-            setTimeout(() => handleLogout(), 4000);
+            setTimeout(() => handleLogout(), 15000);
             return prev;
           });
           return;
@@ -453,6 +455,16 @@ export default function App() {
       eventSource.close();
     };
   }, [currentUser?.id, activeSession?.id, updateLocalItemCount]);
+
+  // Countdown tick for frozen/removed system modal
+  useEffect(() => {
+    if (!systemModal || systemModal.type === 'added') return;
+    if (modalCountdown <= 0) return;
+    const tick = setInterval(() => {
+      setModalCountdown(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [systemModal, modalCountdown]);
 
 
   useEffect(() => {
@@ -3263,12 +3275,39 @@ export default function App() {
               {systemModal.type === 'added' ? 'Start Auditing →' : 'Understood'}
             </button>
 
-            {/* Auto-dismiss note for frozen/removed */}
-            {systemModal.type !== 'added' && (
-              <p style={{ fontSize: 11, color: isDark ? '#52525b' : '#a1a1aa', marginTop: 12 }}>
-                You will be logged out automatically in a few seconds.
-              </p>
-            )}
+            {/* Countdown ring for frozen/removed */}
+            {systemModal.type !== 'added' && (() => {
+              const TOTAL = 15;
+              const pct = modalCountdown / TOTAL;
+              const r = 22;
+              const circ = 2 * Math.PI * r;
+              const accent = systemModal.type === 'frozen' ? '#FF9500' : '#FF3B30';
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginTop: 16 }}>
+                  <svg width="60" height="60" viewBox="0 0 60 60" style={{ transform: 'rotate(-90deg)' }}>
+                    <circle cx="30" cy="30" r={r} fill="none" stroke={isDark ? '#2a2a2e' : '#f0f0f5'} strokeWidth="4" />
+                    <circle
+                      cx="30" cy="30" r={r} fill="none"
+                      stroke={accent} strokeWidth="4"
+                      strokeDasharray={circ}
+                      strokeDashoffset={circ * (1 - pct)}
+                      strokeLinecap="round"
+                      style={{ transition: 'stroke-dashoffset 0.9s linear' }}
+                    />
+                    <text
+                      x="30" y="30"
+                      textAnchor="middle" dominantBaseline="central"
+                      fill={accent}
+                      fontSize="14" fontWeight="800"
+                      style={{ transform: 'rotate(90deg)', transformOrigin: '30px 30px', fontFamily: 'inherit' }}
+                    >{modalCountdown}</text>
+                  </svg>
+                  <p style={{ fontSize: 11, color: isDark ? '#52525b' : '#a1a1aa', margin: 0 }}>
+                    Logging out in {modalCountdown}s
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         </div>,
         document.fullscreenElement || document.body
