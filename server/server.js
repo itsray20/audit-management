@@ -1987,6 +1987,22 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────
 // REPORT EXPORT (Admin/Developer/CoFounder only)
 // ─────────────────────────────────────────────────────────────────
+app.get('/api/audits/:id/export', async (req, res) => {
+  const { id } = req.params;
+  const requesterRole = req.headers['x-user-role'] || req.query.role;
+  if (!isUpperTier(requesterRole)) {
+    return res.status(403).json({ error: 'Export access restricted.' });
+  }
+  try {
+    const buffer = await generateExcelBuffer(id);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Audit_Report_Session_${id}.xlsx`);
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/hospitals/:id/audits/export', async (req, res) => {
   const { id } = req.params;
   const requesterRole = req.headers['x-user-role'] || req.query.role;

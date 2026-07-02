@@ -253,7 +253,7 @@ const generateExcelBuffer = async (sessionId) => {
     difference: item.difference, differenceValue: item.differenceValue
   });
 
-  const PAGE_SIZE = 500;
+  const PAGE_SIZE = 1000;
   let pageNum = 0;
 
   while (true) {
