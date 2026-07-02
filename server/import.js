@@ -11,7 +11,7 @@ const cleanString = (val) => {
 const cleanNumber = (val, defaultVal = 0) => {
   if (val === undefined || val === null || val === '') return defaultVal;
   const num = Number(val);
-  return isNaN(num) ? defaultVal : num;
+  return isNaN(num) || !isFinite(num) ? defaultVal : num;
 };
 
 // Map date format
@@ -22,11 +22,11 @@ const cleanDate = (val) => {
   }
   // Try to parse string or excel serial date
   const str = String(val).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+  if (/^d{4}-d{2}-d{2}/.test(str)) {
     return str.split(' ')[0];
   }
   // Handle some common excel dates like "10-28" or "06-28"
-  if (/^\d{2}-\d{2}$/.test(str)) {
+  if (/^d{2}-d{2}$/.test(str)) {
     return `20${str.split('-')[1]}-${str.split('-')[0]}-01`;
   }
   return str;
@@ -132,7 +132,7 @@ const isSummaryRow = (row, headerMap) => {
 };
 
 // Import Excel Audit File
-const importExcel = async (auditSessionId, filePath) => {
+const importExcel = async (auditSessionId, filePath, onProgress) => {
   const workbook = xlsx.readFile(filePath, { cellDates: true });
   const sheetNames = workbook.SheetNames;
   
@@ -184,7 +184,6 @@ const importExcel = async (auditSessionId, filePath) => {
       headerMap[canonical] = h;
     } else {
       // It's a non-standard column. Check if it's an auditor count column.
-      // E.g. ending in "phy qty", "qty.1", or names like "sri", "sravani", "sanathu", "sha", "recheck", "add", "user1", "user2", etc.
       const normH = h.toLowerCase();
       const isAuditor = normH.includes('phy') || 
                         normH.includes('count') || 
@@ -211,6 +210,93 @@ const importExcel = async (auditSessionId, filePath) => {
   console.log('Detected Headers mapping:', headerMap);
   console.log('Detected Auditor columns:', auditorCols);
 
+  // Fetch session members to dynamically assign remaining generic columns
+  const { data: sessionMembers } = await supabase
+    .from('audit_members')
+    .select('user_id')
+    .eq('audit_session_id', auditSessionId)
+    .order('id', { ascending: true });
+  const sessionMemberIds = (sessionMembers || []).map(m => String(m.user_id));
+
+  // Dynamic Mapping of Generic Auditor Columns to Session Members
+  const colMappings = {};
+  const mappedUserIds = new Set();
+
+  // First pass: map columns that have matching names
+  auditorCols.forEach(col => {
+    let auditorName = col.replace(/\s*Phy\s*Qty/gi, '').trim();
+    if (auditorName === 'Qty.1') {
+      colMappings[col] = 'Extra Count';
+      return;
+    }
+    const cleanAuditor = auditorName.toLowerCase().trim();
+    let matchedId = null;
+    for (const [nameKey, userId] of Object.entries(userMap)) {
+      if (cleanAuditor.includes(nameKey) || nameKey.includes(cleanAuditor)) {
+        matchedId = userId;
+        break;
+      }
+    }
+    if (matchedId) {
+      colMappings[col] = String(matchedId);
+      mappedUserIds.add(String(matchedId));
+    }
+  });
+
+  // Second pass: map generic columns (like "Physical Quantity", "Physical Quantity_1") to remaining members in order
+  const genericCols = auditorCols.filter(col => !colMappings[col]);
+  const unmappedMembers = sessionMemberIds.filter(uid => !mappedUserIds.has(uid));
+
+  genericCols.forEach((col, index) => {
+    if (index < unmappedMembers.length) {
+      const targetUserId = unmappedMembers[index];
+      colMappings[col] = targetUserId;
+      mappedUserIds.add(targetUserId);
+      console.log(`Mapped generic column "${col}" to session member user ID: ${targetUserId}`);
+    } else {
+      let auditorName = col.replace(/\s*Phy\s*Qty/gi, '').trim();
+      if (/^user[1-5]$/i.test(auditorName)) {
+        colMappings[col] = auditorName.charAt(0).toUpperCase() + auditorName.slice(1).toLowerCase();
+      } else if (/^admin$/i.test(auditorName)) {
+        colMappings[col] = 'Admin';
+      } else {
+        colMappings[col] = col; // e.g. "Physical Quantity"
+      }
+    }
+  });
+
+  console.log('Auditor column mapping resolved as:', colMappings);
+
+  // Pre-load all sheets to count total rows for live percentage
+  let extraData = [];
+  if (extraSheetName) {
+    const extraSheet = workbook.Sheets[extraSheetName];
+    updateSheetRange(extraSheet);
+    extraData = xlsx.utils.sheet_to_json(extraSheet, { defval: '' });
+  }
+
+  let otData = [];
+  if (otSheetName) {
+    const otSheet = workbook.Sheets[otSheetName];
+    updateSheetRange(otSheet);
+    otData = xlsx.utils.sheet_to_json(otSheet, { defval: '' });
+  }
+
+  let expData = [];
+  if (expSheetName) {
+    const expSheet = workbook.Sheets[expSheetName];
+    updateSheetRange(expSheet);
+    expData = xlsx.utils.sheet_to_json(expSheet, { defval: '' });
+  }
+
+  const totalRows = mainData.length + extraData.length + otData.length + expData.length;
+  console.log(`Total rows to import calculated: ${totalRows}`);
+  let overallProcessed = 0;
+
+  if (onProgress) {
+    onProgress(0, totalRows);
+  }
+
   let importedCount = 0;
 
   // Function to process rows for insertion
@@ -227,6 +313,11 @@ const importExcel = async (auditSessionId, filePath) => {
     const userIdsToAssign = new Set();
 
     for (const row of rows) {
+      overallProcessed++;
+      if (overallProcessed % 10 === 0 && onProgress) {
+        onProgress(overallProcessed, totalRows);
+      }
+
       if (isSummaryRow(row, headerMap)) {
         console.log('Skipping summary row:', row);
         continue;
@@ -239,7 +330,10 @@ const importExcel = async (auditSessionId, filePath) => {
       const expiryDate = cleanDate(row[headerMap.expiry_date || 'Expiry'] || row['Exp'] || '');
       const category = cleanString(row[headerMap.category || 'Category']);
       const type = cleanString(row[headerMap.type || 'Type']);
-      const packSize = cleanNumber(row[headerMap.pack_size || 'Pack Size'], 1);
+      
+      const packSizeVal = cleanNumber(row[headerMap.pack_size || 'Pack Size'], 1);
+      const packSize = packSizeVal <= 0 ? 1 : packSizeVal;
+      
       const unitMrp = cleanNumber(row[headerMap.unit_mrp || 'Unit MRP'] || row[headerMap.pack_mrp || 'Pack MRP'] / packSize);
       const packMrp = cleanNumber(row[headerMap.pack_mrp || 'Pack MRP'] || unitMrp * packSize);
       const unitPurchaseRate = cleanNumber(row[headerMap.unit_purchase_rate || 'Unit Purchase Cost'] || row[headerMap.pack_rate || 'Pack Rate'] / packSize);
@@ -323,33 +417,12 @@ const importExcel = async (auditSessionId, filePath) => {
             }
 
             // Normalise auditor name
-            let auditorName = col.replace(/\s*Phy\s*Qty/gi, '').trim();
-            if (auditorName === 'Qty.1') {
-              auditorName = 'Extra Count';
-            } else {
-              // Try to map to user ID
-              const cleanAuditor = auditorName.toLowerCase().trim();
-              let matchedId = null;
-              for (const [nameKey, userId] of Object.entries(userMap)) {
-                if (cleanAuditor.includes(nameKey) || nameKey.includes(cleanAuditor)) {
-                  matchedId = userId;
-                  break;
-                }
-              }
-              if (matchedId) {
-                auditorName = matchedId;
-                const matchIdNum = Number(matchedId);
-                if (!assignedUserIds.has(matchIdNum)) {
-                  userIdsToAssign.add(matchIdNum);
-                  assignedUserIds.add(matchIdNum);
-                }
-              } else {
-                if (/^user[1-5]$/i.test(auditorName)) {
-                  auditorName = auditorName.charAt(0).toUpperCase() + auditorName.slice(1).toLowerCase();
-                } else if (/^admin$/i.test(auditorName)) {
-                  auditorName = 'Admin';
-                }
-              }
+            let auditorName = colMappings[col];
+
+            const matchIdNum = Number(auditorName);
+            if (!isNaN(matchIdNum) && !assignedUserIds.has(matchIdNum)) {
+              userIdsToAssign.add(matchIdNum);
+              assignedUserIds.add(matchIdNum);
             }
 
             if (itemId) {
@@ -390,174 +463,179 @@ const importExcel = async (auditSessionId, filePath) => {
     }
 
     importedCount += itemsToInsert.length;
+    if (onProgress) {
+      onProgress(overallProcessed, totalRows);
+    }
   };
 
   // Import main inventory rows
   await processRows(mainData);
 
   // Import Extra Found / NE sheet if present
-  if (extraSheetName) {
-    const extraSheet = workbook.Sheets[extraSheetName];
-    updateSheetRange(extraSheet);
-    const extraData = xlsx.utils.sheet_to_json(extraSheet, { defval: '' });
+  if (extraSheetName && extraData.length > 0) {
     const extraHeaderMap = {};
-    if (extraData.length > 0) {
-      const extraHeaders = Object.keys(extraData[0]);
-      extraHeaders.forEach(h => {
-        const canonical = findMappedColumn(h, COLUMN_MAPPINGS);
-        if (canonical) {
-          extraHeaderMap[canonical] = h;
-        }
-      });
-      console.log('Importing extra found sheet items...');
+    const extraHeaders = Object.keys(extraData[0]);
+    extraHeaders.forEach(h => {
+      const canonical = findMappedColumn(h, COLUMN_MAPPINGS);
+      if (canonical) {
+        extraHeaderMap[canonical] = h;
+      }
+    });
+    console.log('Importing extra found sheet items...');
+    
+    const extraItems = [];
+    const extraRows = [];
+    for (const row of extraData) {
+      overallProcessed++;
+      if (overallProcessed % 10 === 0 && onProgress) {
+        onProgress(overallProcessed, totalRows);
+      }
+
+      if (isSummaryRow(row, extraHeaderMap)) continue;
       
-      const extraItems = [];
-      const extraRows = [];
-      for (const row of extraData) {
-        if (isSummaryRow(row, extraHeaderMap)) continue;
-        
-        const itemName = cleanString(row[extraHeaderMap.item_name || 'Item Name']);
-        if (!itemName) continue;
+      const itemName = cleanString(row[extraHeaderMap.item_name || 'Item Name']);
+      if (!itemName) continue;
 
-        const batchNo = cleanString(row[extraHeaderMap.batch_no || 'Batch No'] || row['Batch'] || 'UNKNOWN');
-        const expiryDate = cleanDate(row[extraHeaderMap.expiry_date || 'Expiry'] || row['Exp'] || '');
-        const unitMrp = cleanNumber(row[extraHeaderMap.unit_mrp || 'MRP']);
-        const unitPurchaseRate = cleanNumber(row[extraHeaderMap.unit_purchase_rate || 'PR'] || row['PR']);
-        const supplier = cleanString(row['Vendor Name'] || '');
+      const batchNo = cleanString(row[extraHeaderMap.batch_no || 'Batch No'] || row['Batch'] || 'UNKNOWN');
+      const expiryDate = cleanDate(row[extraHeaderMap.expiry_date || 'Expiry'] || row['Exp'] || '');
+      const unitMrp = cleanNumber(row[extraHeaderMap.unit_mrp || 'MRP']);
+      const unitPurchaseRate = cleanNumber(row[extraHeaderMap.unit_purchase_rate || 'PR'] || row['PR']);
+      const supplier = cleanString(row['Vendor Name'] || '');
 
-        extraItems.push({
-          audit_session_id: parseInt(auditSessionId), item_name: itemName,
-          batch_no: batchNo, expiry_date: expiryDate, unit_mrp: unitMrp,
-          unit_purchase_rate: unitPurchaseRate, system_qty: 0,
-          supplier, notes: 'Imported as Extra Found'
+      extraItems.push({
+        audit_session_id: parseInt(auditSessionId), item_name: itemName,
+        batch_no: batchNo, expiry_date: expiryDate, unit_mrp: unitMrp,
+        unit_purchase_rate: unitPurchaseRate, system_qty: 0,
+        supplier, notes: 'Imported as Extra Found'
+      });
+      extraRows.push(row);
+    }
+
+    // Batch insert items in chunks
+    const insertedItems = [];
+    const chunkSize = 1000;
+    for (let i = 0; i < extraItems.length; i += chunkSize) {
+      const chunk = extraItems.slice(i, i + chunkSize);
+      const { data: chunkResult, error: insErr } = await supabase
+        .from('items')
+        .insert(chunk)
+        .select('id');
+      if (insErr) throw insErr;
+      insertedItems.push(...chunkResult);
+    }
+
+    // Prepare counts for batch upsert
+    const extraCounts = [];
+    for (let i = 0; i < extraRows.length; i++) {
+      const row = extraRows[i];
+      const inserted = insertedItems[i];
+      const physicalQty = cleanNumber(row[extraHeaderMap.system_qty || 'Qty'] || row['Qty.1']);
+      if (inserted && !isNaN(physicalQty)) {
+        extraCounts.push({
+          item_id: inserted.id, auditor_name: 'Extra Count',
+          physical_count: physicalQty, updated_at: new Date().toISOString()
         });
-        extraRows.push(row);
       }
+    }
 
-      // Batch insert items in chunks
-      const insertedItems = [];
-      const chunkSize = 1000;
-      for (let i = 0; i < extraItems.length; i += chunkSize) {
-        const chunk = extraItems.slice(i, i + chunkSize);
-        const { data: chunkResult, error: insErr } = await supabase
-          .from('items')
-          .insert(chunk)
-          .select('id');
-        if (insErr) throw insErr;
-        insertedItems.push(...chunkResult);
+    // Batch upsert counts
+    if (extraCounts.length > 0) {
+      for (let i = 0; i < extraCounts.length; i += chunkSize) {
+        const chunk = extraCounts.slice(i, i + chunkSize);
+        const { error: upsertErr } = await supabase
+          .from('auditor_counts')
+          .upsert(chunk, { onConflict: 'item_id,auditor_name' });
+        if (upsertErr) throw upsertErr;
       }
+    }
 
-      // Prepare counts for batch upsert
-      const extraCounts = [];
-      for (let i = 0; i < extraRows.length; i++) {
-        const row = extraRows[i];
-        const inserted = insertedItems[i];
-        const physicalQty = cleanNumber(row[extraHeaderMap.system_qty || 'Qty'] || row['Qty.1']);
-        if (inserted && !isNaN(physicalQty)) {
-          extraCounts.push({
-            item_id: inserted.id, auditor_name: 'Extra Count',
-            physical_count: physicalQty, updated_at: new Date().toISOString()
-          });
-        }
-      }
-
-      // Batch upsert counts
-      if (extraCounts.length > 0) {
-        for (let i = 0; i < extraCounts.length; i += chunkSize) {
-          const chunk = extraCounts.slice(i, i + chunkSize);
-          const { error: upsertErr } = await supabase
-            .from('auditor_counts')
-            .upsert(chunk, { onConflict: 'item_id,auditor_name' });
-          if (upsertErr) throw upsertErr;
-        }
-      }
-
-      importedCount += extraItems.length;
+    importedCount += extraItems.length;
+    if (onProgress) {
+      onProgress(overallProcessed, totalRows);
     }
   }
 
   // Import OT (Other) sheet if present
-  if (otSheetName) {
-    const otSheet = workbook.Sheets[otSheetName];
-    updateSheetRange(otSheet);
-    const otData = xlsx.utils.sheet_to_json(otSheet, { defval: '' });
-    if (otData.length > 0) {
-      console.log('Importing OT (Other) sheet items...');
-      await processRows(otData, 'OT');
-    }
+  if (otSheetName && otData.length > 0) {
+    console.log('Importing OT (Other) sheet items...');
+    await processRows(otData, 'OT');
   }
 
   // Import Expired sheet if present
-  if (expSheetName) {
-    const expSheet = workbook.Sheets[expSheetName];
-    updateSheetRange(expSheet);
-    const expData = xlsx.utils.sheet_to_json(expSheet, { defval: '' });
-    if (expData.length > 0) {
-      console.log('Importing Expired sheet items...');
-      
-      const expItems = [];
-      const expRows = [];
-      for (const row of expData) {
-        if (isSummaryRow(row, headerMap)) continue;
-        const itemName = cleanString(row['Item Name']);
-        if (!itemName) continue;
-        const batchNo = cleanString(row['Batch No'] || 'UNKNOWN');
-        const expiryDate = cleanDate(row['Exp'] || '');
-        const unitMrp = cleanNumber(row['MRP']);
-        const physicalQty = cleanNumber(row['Qty']);
-        const value = cleanNumber(row['VALUE']);
-        const unitPurchaseRate = physicalQty > 0 ? value / physicalQty : unitMrp;
-
-        expItems.push({
-          audit_session_id: parseInt(auditSessionId), item_name: itemName,
-          batch_no: batchNo, expiry_date: expiryDate, unit_mrp: unitMrp,
-          unit_purchase_rate: unitPurchaseRate, system_qty: 0,
-          notes: 'Imported as Expired Stock'
-        });
-        expRows.push(row);
+  if (expSheetName && expData.length > 0) {
+    console.log('Importing Expired sheet items...');
+    
+    const expItems = [];
+    const expRows = [];
+    for (const row of expData) {
+      overallProcessed++;
+      if (overallProcessed % 10 === 0 && onProgress) {
+        onProgress(overallProcessed, totalRows);
       }
 
-      // Batch insert items in chunks
-      const insertedItems = [];
-      const chunkSize = 1000;
-      for (let i = 0; i < expItems.length; i += chunkSize) {
-        const chunk = expItems.slice(i, i + chunkSize);
-        const { data: chunkResult, error: expInsErr } = await supabase
-          .from('items')
-          .insert(chunk)
-          .select('id');
-        if (expInsErr) throw expInsErr;
-        insertedItems.push(...chunkResult);
-      }
+      if (isSummaryRow(row, headerMap)) continue;
+      const itemName = cleanString(row['Item Name']);
+      if (!itemName) continue;
+      const batchNo = cleanString(row['Batch No'] || 'UNKNOWN');
+      const expiryDate = cleanDate(row['Exp'] || '');
+      const unitMrp = cleanNumber(row['MRP']);
+      const physicalQty = cleanNumber(row['Qty']);
+      const value = cleanNumber(row['VALUE']);
+      const unitPurchaseRate = physicalQty > 0 ? value / physicalQty : unitMrp;
 
-      // Prepare counts for batch upsert
-      const expCounts = [];
-      for (let i = 0; i < expRows.length; i++) {
-        const row = expRows[i];
-        const inserted = insertedItems[i];
-        const physicalQty = cleanNumber(row['Qty']);
-        if (inserted && !isNaN(physicalQty)) {
-          expCounts.push({
-            item_id: inserted.id, auditor_name: 'Expired Count',
-            physical_count: physicalQty, expiry_check: true,
-            updated_at: new Date().toISOString()
-          });
-        }
-      }
-
-      // Batch upsert counts
-      if (expCounts.length > 0) {
-        for (let i = 0; i < expCounts.length; i += chunkSize) {
-          const chunk = expCounts.slice(i, i + chunkSize);
-          const { error: upsertErr } = await supabase
-            .from('auditor_counts')
-            .upsert(chunk, { onConflict: 'item_id,auditor_name' });
-          if (upsertErr) throw upsertErr;
-        }
-      }
-
-      importedCount += expItems.length;
+      expItems.push({
+        audit_session_id: parseInt(auditSessionId), item_name: itemName,
+        batch_no: batchNo, expiry_date: expiryDate, unit_mrp: unitMrp,
+        unit_purchase_rate: unitPurchaseRate, system_qty: 0,
+        notes: 'Imported as Expired Stock'
+      });
+      expRows.push(row);
     }
+
+    // Batch insert items in chunks
+    const insertedItems = [];
+    const chunkSize = 1000;
+    for (let i = 0; i < expItems.length; i += chunkSize) {
+      const chunk = expItems.slice(i, i + chunkSize);
+      const { data: chunkResult, error: expInsErr } = await supabase
+        .from('items')
+        .insert(chunk)
+        .select('id');
+      if (expInsErr) throw expInsErr;
+      insertedItems.push(...chunkResult);
+    }
+
+    // Prepare counts for batch upsert
+    const expCounts = [];
+    for (let i = 0; i < expRows.length; i++) {
+      const row = expRows[i];
+      const inserted = insertedItems[i];
+      const physicalQty = cleanNumber(row['Qty']);
+      if (inserted && !isNaN(physicalQty)) {
+        expCounts.push({
+          item_id: inserted.id, auditor_name: 'Expired Count',
+          physical_count: physicalQty, expiry_check: true,
+          updated_at: new Date().toISOString()
+        });
+      }
+    }
+
+    // Batch upsert counts
+    if (expCounts.length > 0) {
+      for (let i = 0; i < expCounts.length; i += chunkSize) {
+        const chunk = expCounts.slice(i, i + chunkSize);
+        const { error: upsertErr } = await supabase
+          .from('auditor_counts')
+          .upsert(chunk, { onConflict: 'item_id,auditor_name' });
+        if (upsertErr) throw upsertErr;
+      }
+    }
+
+    importedCount += expItems.length;
+  }
+
+  if (onProgress) {
+    onProgress(totalRows, totalRows);
   }
 
   return importedCount;

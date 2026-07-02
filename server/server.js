@@ -24,6 +24,110 @@ const clearSessionCache = (sessionId) => {
     sessionCache.delete(String(sessionId));
   }
 };
+const importProgressMap = new Map();
+
+// Helper to fetch all items and counts in exactly 2 raw SQL queries (optimized for large datasets)
+const fetchSessionData = async (id) => {
+  const { data: session, error: sErr } = await supabase.from('audit_sessions').select('*').eq('id', id).single();
+  if (sErr || !session) throw new Error('Session not found');
+
+  const { data: auditMembers } = await supabase
+    .from('audit_members')
+    .select('user_id, status')
+    .eq('audit_session_id', id);
+
+  const memberIds = (auditMembers || []).map(m => String(m.user_id));
+
+  // 1. Fetch all items in a single query via raw SQL
+  const { data: itemsList, error: itemsErr } = await supabase.rpc('exec_raw_sql', {
+    query_text: 'SELECT * FROM items WHERE audit_session_id = $1::bigint ORDER BY id ASC',
+    query_params: [String(id)]
+  });
+  if (itemsErr) throw itemsErr;
+
+  // 2. Fetch all counts for the session in a single query via raw SQL
+  const { data: allCounts, error: countsErr } = await supabase.rpc('exec_raw_sql', {
+    query_text: `
+      SELECT ac.* 
+      FROM auditor_counts ac
+      JOIN items i ON i.id = ac.item_id
+      WHERE i.audit_session_id = $1::bigint
+    `,
+    query_params: [String(id)]
+  });
+  if (countsErr) throw countsErr;
+
+  const countsByItem = {};
+  (allCounts || []).forEach(c => {
+    if (!countsByItem[c.item_id]) countsByItem[c.item_id] = [];
+    countsByItem[c.item_id].push(c);
+  });
+
+  const ALLOWED_AUDITORS = Array.from(new Set([
+    ...memberIds,
+    'Physical Quantity', 'Physical Quantity_1', 'Physical Quantity_2',
+    'Extra Count', 'Expired Count'
+  ]));
+
+  const processedList = (itemsList || []).map(item => {
+    const itemCounts = countsByItem[item.id] || [];
+    const auditorTotal = itemCounts.reduce((sum, c) => {
+      if (ALLOWED_AUDITORS.includes(String(c.auditor_name))) return sum + (c.physical_count || 0);
+      return sum;
+    }, 0);
+    const hasExpiredCheck = itemCounts.some(c => c.expiry_check === true || c.expiry_check === 1);
+    const totalPhysical = auditorTotal + Number(item.manual_add || 0) + Number(item.manual_recheck || 0);
+
+    const hasValidCount = itemCounts.some(c => ALLOWED_AUDITORS.includes(String(c.auditor_name)));
+    const isCounted = hasValidCount || Number(item.manual_add || 0) !== 0 || Number(item.manual_recheck || 0) !== 0;
+
+    const difference = isCounted ? (totalPhysical - (item.system_qty || 0)) : 0;
+    const differenceValue = difference * (item.unit_purchase_rate || 0);
+
+    let category = 'Not Counted';
+    let expiryStatus = 'GOOD STOCK';
+    if (item.expiry_date) {
+      const itemDate = new Date(item.expiry_date);
+      itemDate.setHours(0, 0, 0, 0);
+      const refDate = new Date(session.audit_date);
+      refDate.setHours(0, 0, 0, 0);
+      const ninetyDays = new Date(refDate);
+      ninetyDays.setDate(refDate.getDate() + 90);
+      if (itemDate < refDate) expiryStatus = 'EXPIRED';
+      else if (itemDate <= ninetyDays) expiryStatus = 'NEAR EXPIRY';
+      else expiryStatus = 'GOOD STOCK';
+    }
+    if (hasExpiredCheck) expiryStatus = 'EXPIRED';
+
+    if (isCounted) {
+      if (item.system_qty === 0 && totalPhysical > 0) category = 'Extra Found';
+      else if (expiryStatus === 'EXPIRED' && totalPhysical > 0) category = 'Expired Stock';
+      else if (item.notes && item.notes.startsWith('OT')) category = 'Other';
+      else if (difference > 0) category = 'Excess';
+      else if (difference < 0) category = 'Shortage';
+      else category = 'Perfect Match';
+    }
+
+    return { ...item, totalPhysical, difference, differenceValue, category, expiryStatus, auditor_counts: itemCounts };
+  });
+
+  const suppliers = [...new Set((itemsList || []).map(i => i.supplier).filter(Boolean))].sort();
+  const locations = [...new Set((itemsList || []).map(i => i.location).filter(Boolean))].sort();
+  const stores = [...new Set((itemsList || []).map(i => i.store_name).filter(Boolean))].sort();
+
+  return { processedList, suppliers, locations, stores, ALLOWED_AUDITORS, auditDate: session.audit_date, auditMembers };
+};
+
+// Helper to pre-compile and store data in sessionCache
+const prepopulateSessionCache = async (sessionId) => {
+  try {
+    const data = await fetchSessionData(sessionId);
+    sessionCache.set(String(sessionId), data);
+    console.log(`Cache successfully prepopulated for session ${sessionId}`);
+  } catch (err) {
+    console.error(`Failed to prepopulate cache for session ${sessionId}:`, err.message);
+  }
+};
 
 app.use((req, res, next) => {
   const userId = req.headers['x-user-id'];
@@ -729,10 +833,18 @@ app.get('/api/audits', async (req, res) => {
       sessions = sessions.filter(s => allowedSessionIds.has(s.id));
     }
 
-    const { data: items, error: iErr } = await supabase
-      .from('items')
-      .select('audit_session_id, system_qty, unit_purchase_rate');
-    if (iErr) throw iErr;
+    const { data: summaryData, error: sumErr } = await supabase.rpc('exec_raw_sql', {
+      query_text: `
+        SELECT 
+          audit_session_id, 
+          COUNT(*)::integer as count, 
+          SUM(COALESCE(system_qty, 0) * COALESCE(unit_purchase_rate, 0))::numeric as value 
+        FROM items 
+        GROUP BY audit_session_id
+      `,
+      query_params: []
+    });
+    if (sumErr) throw sumErr;
 
     // Fetch hospitals for enrichment
     const { data: hospitals } = await supabase.from('hospitals').select('id, name, location');
@@ -740,10 +852,11 @@ app.get('/api/audits', async (req, res) => {
     (hospitals || []).forEach(h => { hospitalMap[h.id] = h; });
 
     const sessionMap = {};
-    items.forEach(item => {
-      if (!sessionMap[item.audit_session_id]) sessionMap[item.audit_session_id] = { count: 0, value: 0 };
-      sessionMap[item.audit_session_id].count += 1;
-      sessionMap[item.audit_session_id].value += (item.system_qty || 0) * (item.unit_purchase_rate || 0);
+    (summaryData || []).forEach(row => {
+      sessionMap[row.audit_session_id] = {
+        count: row.count,
+        value: Number(row.value || 0)
+      };
     });
 
     const result = sessions.map(s => ({
@@ -913,13 +1026,20 @@ app.get('/api/audits/:id/members', async (req, res) => {
     });
 
     // Dynamically append virtual members representing unique auditor names in auditor_counts
-    const { data: items } = await supabase.from('items').select('id').eq('audit_session_id', id);
-    const itemIds = (items || []).map(i => i.id);
-    let countAuditors = [];
-    if (itemIds.length > 0) {
-      const counts = await fetchCountsInChunks(itemIds);
-      countAuditors = Array.from(new Set((counts || []).map(c => String(c.auditor_name)))).filter(n => !n.startsWith('Physical Quantity'));
-    }
+    const { data: countsData, error: countsErr } = await supabase.rpc('exec_raw_sql', {
+      query_text: `
+        SELECT DISTINCT ac.auditor_name 
+        FROM auditor_counts ac
+        JOIN items i ON i.id = ac.item_id
+        WHERE i.audit_session_id = $1::bigint
+      `,
+      query_params: [String(id)]
+    });
+    if (countsErr) throw countsErr;
+
+    const countAuditors = (countsData || [])
+      .map(c => String(c.auditor_name))
+      .filter(n => !n.startsWith('Physical Quantity'));
 
     const existingUserIdsOrNames = new Set([
       ...userIds.map(String),
@@ -1032,12 +1152,70 @@ app.post('/api/audits/:id/import', enforceWritePermission, upload.single('file')
   if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
   const filePath = req.file.path;
   try {
-    const count = await importExcel(id, filePath);
+    importProgressMap.set(String(id), { total: 0, processed: 0, status: 'parsing', error: null });
+    const count = await importExcel(id, filePath, (processed, total) => {
+      importProgressMap.set(String(id), { total, processed, status: 'importing', error: null });
+    });
     fs.unlinkSync(filePath);
     clearSessionCache(id);
+    await prepopulateSessionCache(id);
+    importProgressMap.set(String(id), { total: count, processed: count, status: 'completed', error: null });
     res.json({ success: true, imported_rows: count });
   } catch (err) {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    importProgressMap.set(String(id), { total: 0, processed: 0, status: 'failed', error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET Import progress
+app.get('/api/audits/:id/import-progress', async (req, res) => {
+  const { id } = req.params;
+  const progress = importProgressMap.get(String(id)) || { total: 0, processed: 0, status: 'idle', error: null };
+  res.json(progress);
+});
+
+// POST Reset import progress
+app.post('/api/audits/:id/import-progress/reset', async (req, res) => {
+  const { id } = req.params;
+  importProgressMap.delete(String(id));
+  res.json({ success: true });
+});
+
+// POST Reset/Remove imported data for a session
+app.post('/api/audits/:id/reset-import', enforceWritePermission, async (req, res) => {
+  const { id } = req.params;
+  const userRole = req.headers['x-user-role'];
+  if (!isPrivileged(userRole)) {
+    return res.status(403).json({ error: 'Only administrators can remove imported Excel data.' });
+  }
+  try {
+    // 1. Get all item IDs belonging to this session
+    const { data: items, error: fetchErr } = await supabase
+      .from('items')
+      .select('id')
+      .eq('audit_session_id', id);
+    if (fetchErr) throw fetchErr;
+
+    const itemIds = (items || []).map(i => i.id);
+
+    if (itemIds.length > 0) {
+      const chunkSize = 500;
+      for (let i = 0; i < itemIds.length; i += chunkSize) {
+        const chunk = itemIds.slice(i, i + chunkSize);
+        // 2. Delete auditor_counts
+        await supabase.from('auditor_counts').delete().in('item_id', chunk);
+        // 3. Delete audit_trail
+        await supabase.from('audit_trail').delete().in('item_id', chunk);
+      }
+      // 4. Delete items
+      const { error: delErr } = await supabase.from('items').delete().eq('audit_session_id', id);
+      if (delErr) throw delErr;
+    }
+
+    clearSessionCache(id);
+    res.json({ success: true, message: `Successfully removed ${itemIds.length} imported items.` });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -1187,101 +1365,18 @@ app.get('/api/audits/:id/items', async (req, res) => {
       return;
     }
 
-    const { data: session, error: sErr } = await supabase.from('audit_sessions').select('*').eq('id', id).single();
-    if (sErr || !session) return res.status(404).json({ error: 'Session not found' });
-
-    // Get audit members for this session to know which auditor_name columns to allow
-    const { data: auditMembers } = await supabase
-      .from('audit_members')
-      .select('user_id, status')
-      .eq('audit_session_id', id);
-
-    const memberIds = (auditMembers || []).map(m => String(m.user_id));
-
     let processedList;
     let suppliers, locations, stores;
 
-    // Cache miss - we do the full fetch
-    if (true) {
-      let allItemsList = [];
-      let pageNum = 0;
-      const pageSize = 1000;
-      while (true) {
-        let batchQuery = supabase.from('items').select('*').eq('audit_session_id', id);
-        const { data, error } = await batchQuery
-          .order('id', { ascending: true })
-          .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1);
-          
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        allItemsList = allItemsList.concat(data);
-        if (data.length < pageSize) break;
-        pageNum++;
-      }
-      const itemsList = allItemsList;
-
-      const allCounts = await fetchCountsInChunks(itemsList.map(i => i.id));
-
-      // Group counts by item_id
-      const countsByItem = {};
-      (allCounts || []).forEach(c => {
-        if (!countsByItem[c.item_id]) countsByItem[c.item_id] = [];
-        countsByItem[c.item_id].push(c);
-      });
-
-      // The valid auditors = dynamic member IDs + named legacy slots only.
-      // Do NOT include countAuditors (arbitrary DB strings) — old Excel-import
-      // artifacts like "Physical Quantity_1" would corrupt the physical total.
-      
-      const ALLOWED_AUDITORS = Array.from(new Set([...memberIds]));
-
-      processedList = itemsList.map(item => {
-        const itemCounts = countsByItem[item.id] || [];
-        const auditorTotal = itemCounts.reduce((sum, c) => {
-          if (ALLOWED_AUDITORS.includes(String(c.auditor_name))) return sum + (c.physical_count || 0);
-          return sum;
-        }, 0);
-        const hasExpiredCheck = itemCounts.some(c => c.expiry_check === true || c.expiry_check === 1);
-        const totalPhysical = auditorTotal + Number(item.manual_add || 0) + Number(item.manual_recheck || 0);
-
-        const hasValidCount = itemCounts.some(c => ALLOWED_AUDITORS.includes(String(c.auditor_name)));
-        const isCounted = hasValidCount || Number(item.manual_add || 0) !== 0 || Number(item.manual_recheck || 0) !== 0;
-
-        const difference = isCounted ? (totalPhysical - (item.system_qty || 0)) : 0;
-        const differenceValue = difference * (item.unit_purchase_rate || 0);
-
-        let category = 'Not Counted';
-        let expiryStatus = 'GOOD STOCK';
-        if (item.expiry_date) {
-          const itemDate = new Date(item.expiry_date);
-          itemDate.setHours(0, 0, 0, 0);
-          const refDate = new Date(session.audit_date);
-          refDate.setHours(0, 0, 0, 0);
-          const ninetyDays = new Date(refDate);
-          ninetyDays.setDate(refDate.getDate() + 90);
-          if (itemDate < refDate) expiryStatus = 'EXPIRED';
-          else if (itemDate <= ninetyDays) expiryStatus = 'NEAR EXPIRY';
-          else expiryStatus = 'GOOD STOCK';
-        }
-        if (hasExpiredCheck) expiryStatus = 'EXPIRED';
-
-        if (isCounted) {
-          if (item.system_qty === 0 && totalPhysical > 0) category = 'Extra Found';
-          else if (expiryStatus === 'EXPIRED' && totalPhysical > 0) category = 'Expired Stock';
-          else if (item.notes && item.notes.startsWith('OT')) category = 'Other';
-          else if (difference > 0) category = 'Excess';
-          else if (difference < 0) category = 'Shortage';
-          else category = 'Perfect Match';
-        }
-
-        return { ...item, totalPhysical, difference, differenceValue, category, expiryStatus, auditor_counts: itemCounts };
-      });
-
-      suppliers = [...new Set((itemsList || []).map(i => i.supplier).filter(Boolean))].sort();
-      locations = [...new Set((itemsList || []).map(i => i.location).filter(Boolean))].sort();
-      stores = [...new Set((itemsList || []).map(i => i.store_name).filter(Boolean))].sort();
-
-      sessionCache.set(cacheKey, { processedList, suppliers, locations, stores, ALLOWED_AUDITORS, auditDate: session.audit_date });
+    try {
+      const data = await fetchSessionData(id);
+      processedList = data.processedList;
+      suppliers = data.suppliers;
+      locations = data.locations;
+      stores = data.stores;
+      sessionCache.set(cacheKey, data);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
 
     // Apply filtering in memory
@@ -1700,44 +1795,34 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
     const { data: session, error: sErr } = await supabase.from('audit_sessions').select('*').eq('id', id).single();
     if (sErr || !session) return res.status(404).json({ error: 'Session not found' });
 
-    let allItems = [];
-    let pageNum = 0;
-    const pageSize = 1000;
-    while (true) {
-      const { data, error } = await supabase
-        .from('items')
-        .select('*')
-        .eq('audit_session_id', id)
-        .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1)
-        .order('id', { ascending: true });
-        
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      allItems = allItems.concat(data);
-      if (data.length < pageSize) break;
-      pageNum++;
+    let processedItems = [];
+    let auditMembers = [];
+    let allCounts = [];
+    let ALLOWED_AUDITORS = [];
+
+    const cacheKey = String(id);
+    if (sessionCache.has(cacheKey)) {
+      const cached = sessionCache.get(cacheKey);
+      processedItems = cached.processedList;
+      ALLOWED_AUDITORS = cached.ALLOWED_AUDITORS || [];
+      
+      const { data: members } = await supabase.from('audit_members').select('*').eq('audit_session_id', id);
+      auditMembers = members || [];
+      
+      processedItems.forEach(item => {
+        if (item.auditor_counts) allCounts.push(...item.auditor_counts);
+      });
+    } else {
+      const data = await fetchSessionData(id);
+      processedItems = data.processedList;
+      ALLOWED_AUDITORS = data.ALLOWED_AUDITORS;
+      auditMembers = data.auditMembers || [];
+      
+      processedItems.forEach(item => {
+        if (item.auditor_counts) allCounts.push(...item.auditor_counts);
+      });
+      sessionCache.set(cacheKey, data);
     }
-    const items = allItems;
-
-    const allCounts = await fetchCountsInChunks((items || []).map(i => i.id));
-
-    const countsByItem = {};
-    (allCounts || []).forEach(c => {
-      if (!countsByItem[c.item_id]) countsByItem[c.item_id] = [];
-      countsByItem[c.item_id].push(c);
-    });
-
-    
-    // Get audit members
-    const { data: auditMembers } = await supabase.from('audit_members').select('*').eq('audit_session_id', id);
-    const memberIds = (auditMembers || []).map(m => String(m.user_id));
-    const countAuditors = Array.from(new Set((allCounts || []).map(c => String(c.auditor_name)))).filter(n => !n.startsWith('Physical Quantity'));
-    const ALLOWED_AUDITORS = Array.from(new Set([...memberIds, ...countAuditors]));
-
-    const processedItems = (items || []).map(item => {
-      const itemCounts = countsByItem[item.id] || [];
-      return calculateItemValues(item, itemCounts, session.audit_date, ALLOWED_AUDITORS);
-    });
 
     const totalItems = processedItems.length;
 
@@ -1804,7 +1889,7 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
 
     // ── Member Performance ──
     // Count audit_trail entries per user for this session
-    const itemIds = (items || []).map(i => i.id);
+    const itemIds = (processedItems || []).map(i => i.id);
     let memberPerformance = [];
 
     if (itemIds.length > 0) {

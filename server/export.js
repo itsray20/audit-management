@@ -3,7 +3,11 @@ const ExcelJS = require('exceljs');
 const { supabase } = require('./db');
 
 const calculateItemValues = (item, counts, sessionDate, allowedAuditors) => {
-  const ALLOWED_AUDITORS = allowedAuditors || ['Admin', 'User1', 'User2', 'User3', 'User4', 'User5'];
+  const ALLOWED_AUDITORS = allowedAuditors || [
+    'Admin', 'User1', 'User2', 'User3', 'User4', 'User5',
+    'Physical Quantity', 'Physical Quantity_1', 'Physical Quantity_2',
+    'Extra Count', 'Expired Count'
+  ];
   
   // Sum auditor counts
   let totalCounts = 0;

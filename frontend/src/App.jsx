@@ -151,6 +151,8 @@ export default function App() {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showReopenModal, setShowReopenModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showRemoveImportModal, setShowRemoveImportModal] = useState(false);
+  const [isRemovingImport, setIsRemovingImport] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [pendingUploadFile, setPendingUploadFile] = useState(null);
 
@@ -238,22 +240,22 @@ export default function App() {
   useEffect(() => {
     if (activeSession && currentUser) {
       fetchAuditMembers();
+      if (isUpperTier(currentUser.role)) {
+        fetchDashboardMetrics();
+      }
     } else {
       setAuditMembers([]);
+      setDashboardMetrics(null);
     }
   }, [activeSession, currentUser]);
 
   useEffect(() => {
     if (activeSession && currentUser) {
       fetchItems();
-      if (isUpperTier(currentUser.role)) {
-        fetchDashboardMetrics();
-      }
       fetchGeneralTrail();
     } else {
       setItems([]);
       setTotalItems(0);
-      setDashboardMetrics(null);
       setGeneralTrail([]);
     }
   }, [activeSession, currentPage, search, filter, alphabetFilter, supplierFilter, locationFilter, storeFilter, sortBy, sortOrder, limit]);
@@ -261,9 +263,13 @@ export default function App() {
   useEffect(() => {
     if (!activeSession || !syncEnabled || !currentUser) return;
     const id = setInterval(() => {
-      fetchItems(true);
-      if (isUpperTier(currentUser.role)) fetchDashboardMetrics(true);
-      if (activeTab === 'trail') fetchGeneralTrail(true);
+      if (activeTab === 'sheet') {
+        fetchItems(true);
+      } else if (activeTab === 'dashboard' && isUpperTier(currentUser.role)) {
+        fetchDashboardMetrics(true);
+      } else if (activeTab === 'trail') {
+        fetchGeneralTrail(true);
+      }
     }, 5000);
     return () => clearInterval(id);
   }, [activeSession, syncEnabled, activeTab, currentPage, search, filter, alphabetFilter, supplierFilter, locationFilter, storeFilter, currentUser, sortBy, sortOrder, limit]);
@@ -590,15 +596,31 @@ export default function App() {
     setIsUploading(true);
     setUploadStatus('Uploading file...');
     setUploadError(null);
-    
-    // Start progress simulation
-    let progress = 0;
     setImportProgress(0);
-    const interval = setInterval(() => {
-      progress += Math.random() * 15 + 10;
-      if (progress > 90) progress = 90; // hold at 90% until api completes
-      setImportProgress(Math.floor(progress));
-    }, 400);
+
+    // Dynamic progress polling
+    const progressInterval = setInterval(async () => {
+      try {
+        const progressRes = await axios.get(`/api/audits/${activeSession.id}/import-progress`);
+        const { total, processed, status, error } = progressRes.data;
+        if (status === 'parsing') {
+          setUploadStatus('Analyzing Excel entries...');
+          setImportProgress(5);
+        } else if (status === 'importing') {
+          const pct = total > 0 ? Math.floor((processed / total) * 90) : 10;
+          setImportProgress(pct);
+          setUploadStatus(`Importing entries: ${processed} / ${total} (${pct}%)`);
+        } else if (status === 'completed') {
+          setImportProgress(100);
+          setUploadStatus('Finalizing import...');
+        } else if (status === 'failed') {
+          setUploadError(error || 'Import failed.');
+          setUploadStatus(error || 'Import failed.');
+        }
+      } catch (err) {
+        // ignore progress fetch errors silently
+      }
+    }, 500);
 
     const formData = new FormData();
     formData.append('file', fileToUpload);
@@ -606,30 +628,56 @@ export default function App() {
       const res = await axios.post(`/api/audits/${activeSession.id}/import`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      clearInterval(interval);
+      clearInterval(progressInterval);
       setImportProgress(100);
-      setUploadStatus(`✓ Imported successfully: ${res.data.imported_rows} rows added!`);
+      setUploadStatus(`✓ Imported successfully: ${res.data.imported_rows} rows added! Finalizing dashboard...`);
       
-      // wait a moment to show 100%
-      setTimeout(() => {
-        setUploadFile(null);
-        setPendingUploadFile(null);
-        setShowImportModal(false);
-        setIsUploading(false);
-        setImportProgress(0);
-        setUploadStatus('');
-        setUploadError(null);
-        fetchDashboardMetrics();
-        fetchItems();
-        fetchSessions();
-      }, 1000);
+      // Load all required data concurrently before closing the modal
+      await Promise.all([
+        fetchDashboardMetrics(true),
+        fetchItems(true),
+        fetchSessions()
+      ]);
+
+      // clean up on server
+      await axios.post(`/api/audits/${activeSession.id}/import-progress/reset`).catch(() => {});
+      
+      setUploadFile(null);
+      setPendingUploadFile(null);
+      setShowImportModal(false);
+      setIsUploading(false);
+      setImportProgress(0);
+      setUploadStatus('');
+      setUploadError(null);
     } catch (err) {
-      clearInterval(interval);
+      clearInterval(progressInterval);
       setIsUploading(false);
       setImportProgress(0);
       const errMsg = err.response?.data?.error || err.message || 'Upload failed.';
       setUploadError(errMsg);
       setUploadStatus(errMsg);
+      
+      // clean up on server
+      await axios.post(`/api/audits/${activeSession.id}/import-progress/reset`).catch(() => {});
+    }
+  };
+
+  const handleRemoveImport = async () => {
+    if (!activeSession) return;
+    setIsRemovingImport(true);
+    try {
+      await axios.post(`/api/audits/${activeSession.id}/reset-import`);
+      setShowRemoveImportModal(false);
+      setUploadStatus('✓ Excel data removed successfully.');
+      setTimeout(() => setUploadStatus(''), 3000);
+      fetchDashboardMetrics();
+      fetchItems();
+      fetchSessions();
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.error || err.message || 'Failed to remove import');
+    } finally {
+      setIsRemovingImport(false);
     }
   };
 
@@ -1791,15 +1839,23 @@ export default function App() {
                   )}
 
                   {userPrivileged && (() => {
-                    const hasImported = totalItems > 0;
+                    const hasImported = totalItems > 0 || (activeSession && activeSession.items_count > 0);
                     return (
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           onClick={() => {
-                            if (!hasImported) setShowImportModal(true);
+                            if (!hasImported) {
+                              setShowImportModal(true);
+                            } else {
+                              setShowRemoveImportModal(true);
+                            }
                           }}
-                          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${hasImported ? 'opacity-40 cursor-not-allowed select-none' : 'cursor-pointer hover:bg-[var(--glass-bg-hover)]'}`}
-                          style={{ background: 'var(--glass-bg-light)', border: '1px solid var(--glass-border-dim)', color: 'var(--text-secondary)' }}
+                          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                            hasImported 
+                              ? 'border border-solid border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-500 bg-transparent hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-500/30' 
+                              : 'hover:bg-[var(--glass-bg-hover)]'
+                          }`}
+                          style={!hasImported ? { background: 'var(--glass-bg-light)', border: '1px solid var(--glass-border-dim)', color: 'var(--text-secondary)' } : {}}
                         >
                           <UploadCloud className="h-3.5 w-3.5" />
                           {hasImported ? 'Imported' : 'Import'}
@@ -3012,6 +3068,30 @@ export default function App() {
               </div>
             )}
             
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Remove Import Confirmation Modal */}
+      {showRemoveImportModal && ReactDOM.createPortal(
+        <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} onClick={() => !isRemovingImport && setShowRemoveImportModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '400px', animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)', background: isDark ? '#1c1c1e' : '#ffffff', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', borderRadius: '22px', padding: '32px 28px 28px', textAlign: 'center' }}>
+            <div style={{ width: 60, height: 60, borderRadius: '18px', background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: '#FF3B30' }}>
+              <Trash2 style={{ width: 28, height: 28 }} />
+            </div>
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8, color: '#FF3B30', letterSpacing: '-0.02em' }}>Remove Excel Data</h3>
+            <p style={{ fontSize: 13, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 24, lineHeight: 1.5 }}>
+              Are you sure you want to remove the imported Excel data? This will delete all items, physical counts, and audit trail entries for this session. This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button disabled={isRemovingImport} onClick={() => setShowRemoveImportModal(false)} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 600, borderRadius: 12, border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.15)', color: 'var(--text-secondary)', background: 'transparent', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button disabled={isRemovingImport} onClick={handleRemoveImport} style={{ flex: 1, padding: '11px 16px', fontSize: 13, fontWeight: 700, borderRadius: 12, border: 'none', color: '#ffffff', background: '#FF3B30', cursor: 'pointer' }}>
+                {isRemovingImport ? 'Removing...' : 'Yes, Remove'}
+              </button>
+            </div>
           </div>
         </div>,
         document.body
