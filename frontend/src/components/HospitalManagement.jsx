@@ -50,7 +50,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
   const [loadingAssociatedAudits, setLoadingAssociatedAudits] = useState(false);
   const [auditDeleteSearch, setAuditDeleteSearch] = useState('');
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
-  const [zipStatus, setZipStatus] = useState({ active: false, total: 0, current: 0, currentName: '' });
+  const [zipStatus, setZipStatus] = useState({ active: false, total: 0, current: 0, currentName: '', error: null });
   const [isDeleting, setIsDeleting]             = useState(false);
   const zipCancelledRef                         = useRef(false);
   const [toast, setToast]                       = useState(null);
@@ -181,7 +181,8 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
       active: true,
       total: associatedAudits.length,
       current: 0,
-      currentName: 'Initializing backup...'
+      currentName: 'Initializing backup...',
+      error: null
     });
     
     const zip = new JSZip();
@@ -240,8 +241,11 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
       }));
     } catch (err) {
       console.error(err);
-      showToast('Zipping failed: ' + (err.message || 'Error occurred'), false);
-      setZipStatus(prev => ({ ...prev, active: false }));
+      setZipStatus(prev => ({
+        ...prev,
+        currentName: `Error: ${err.message || 'Zipping failed'}`,
+        error: err.message || 'Error occurred'
+      }));
     }
   };
 
@@ -570,23 +574,31 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
               width: 54,
               height: 54,
               borderRadius: '16px',
-              background: 'rgba(52,199,89,0.1)',
-              border: '1px solid rgba(52,199,89,0.2)',
+              background: zipStatus.error ? 'rgba(255,59,48,0.1)' : 'rgba(52,199,89,0.1)',
+              border: zipStatus.error ? '1px solid rgba(255,59,48,0.2)' : '1px solid rgba(52,199,89,0.2)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               margin: '0 auto 20px',
-              color: '#34C759'
+              color: zipStatus.error ? '#FF3B30' : '#34C759'
             }}>
-              <RefreshCw className="animate-spin" style={{ width: 24, height: 24 }} />
+              {zipStatus.error ? (
+                <AlertTriangle style={{ width: 24, height: 24 }} />
+              ) : zipStatus.current >= zipStatus.total ? (
+                <Check style={{ width: 24, height: 24 }} />
+              ) : (
+                <RefreshCw className="animate-spin" style={{ width: 24, height: 24 }} />
+              )}
             </div>
             
-            <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, color: c.t1, letterSpacing: '-0.02em' }}>
-              {zipStatus.current >= zipStatus.total ? '✓ Backup Complete!' : 'Zipping & Downloading...'}
+            <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, color: zipStatus.error ? '#FF3B30' : c.t1, letterSpacing: '-0.02em' }}>
+              {zipStatus.error ? 'Backup Failed' : zipStatus.current >= zipStatus.total ? '✓ Backup Complete!' : 'Zipping & Downloading...'}
             </h3>
             
             <p style={{ fontSize: 12, color: c.t3, marginBottom: 20, lineHeight: 1.4 }}>
-              {zipStatus.current >= zipStatus.total
+              {zipStatus.error
+                ? <span>An error occurred while compiling your backup archive. Details below:</span>
+                : zipStatus.current >= zipStatus.total
                 ? <span>Your zip backup for <strong>{deleteTarget?.name}</strong> has been generated successfully.</span>
                 : <span>Bundling audit reports for <strong>{deleteTarget?.name}</strong>. Please do not close or reload the browser.</span>}
             </p>
@@ -600,23 +612,44 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
               marginBottom: 24
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: c.t2, marginBottom: 6 }}>
-                <span>Progress</span>
-                <span>{zipStatus.current} of {zipStatus.total}</span>
+                <span>{zipStatus.error ? 'Error Details' : 'Progress'}</span>
+                {!zipStatus.error && <span>{zipStatus.current} of {zipStatus.total}</span>}
               </div>
-              <div style={{ width: '100%', height: 6, background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)', borderRadius: 3, overflow: 'hidden', marginBottom: 10 }}>
-                <div style={{ width: `${(zipStatus.current / zipStatus.total) * 100}%`, height: '100%', background: '#34C759', transition: 'width 0.3s ease' }} />
-              </div>
-              <p style={{ fontSize: 10, color: c.t3, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {!zipStatus.error && (
+                <div style={{ width: '100%', height: 6, background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)', borderRadius: 3, overflow: 'hidden', marginBottom: 10 }}>
+                  <div style={{ width: `${(zipStatus.current / zipStatus.total) * 100}%`, height: '100%', background: '#34C759', transition: 'width 0.3s ease' }} />
+                </div>
+              )}
+              <p style={{ fontSize: 10, color: zipStatus.error ? '#FF3B30' : c.t3, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'normal', wordBreak: 'break-word' }}>
                 {zipStatus.currentName}
               </p>
             </div>
 
             {/* Close / Cancel Button */}
-            {zipStatus.current < zipStatus.total ? (
+            {zipStatus.error ? (
+              <button
+                onClick={() => setZipStatus({ active: false, total: 0, current: 0, currentName: '', error: null })}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  borderRadius: 12,
+                  border: 'none',
+                  color: '#ffffff',
+                  background: '#FF3B30',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(255,59,48,0.2)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                Close
+              </button>
+            ) : zipStatus.current < zipStatus.total ? (
               <button
                 onClick={() => {
                   zipCancelledRef.current = true;
-                  setZipStatus({ active: false, total: 0, current: 0, currentName: '' });
+                  setZipStatus({ active: false, total: 0, current: 0, currentName: '', error: null });
                   showToast('Backup download cancelled.', false);
                 }}
                 style={{
@@ -636,7 +669,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
               </button>
             ) : (
               <button
-                onClick={() => setZipStatus({ active: false, total: 0, current: 0, currentName: '' })}
+                onClick={() => setZipStatus({ active: false, total: 0, current: 0, currentName: '', error: null })}
                 style={{
                   width: '100%',
                   padding: '12px 16px',
