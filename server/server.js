@@ -1234,6 +1234,15 @@ app.post('/api/audits', async (req, res) => {
         action_by: userName || 'Admin',
       }));
       await supabase.from('audit_members').upsert(memberInserts, { onConflict: 'audit_session_id,user_id' });
+
+      // Notify the members so they get access instantly
+      Array.from(assignedUserIds).forEach(uid => {
+        sendAuditMemberUpdate(uid, {
+          audit_session_id: data.id,
+          status: 'active',
+          action: 'added'
+        });
+      });
     }
 
     res.json(data);
