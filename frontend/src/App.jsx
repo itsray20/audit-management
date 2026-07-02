@@ -553,12 +553,23 @@ export default function App() {
 
   const handleCreateSession = async (e) => {
     e.preventDefault();
-    if (!newSessionName) return;
+    if (!newSessionName.trim()) {
+      alert('Session name is required.');
+      return;
+    }
+    if (!newSessionHospital) {
+      alert('Target hospital is required.');
+      return;
+    }
+    if (!newSessionMembers || newSessionMembers.length === 0) {
+      alert('Please select at least one auditor for this session.');
+      return;
+    }
     try {
       const res = await axios.post('/api/audits', {
         name: newSessionName,
         audit_date: newSessionDate,
-        hospital_id: newSessionHospital || null,
+        hospital_id: newSessionHospital,
         assigned_members: newSessionMembers,
       });
       setNewSessionName('');
@@ -1358,7 +1369,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>Target Hospital *</label>
                       <div className="relative hospital-dropdown-container">
@@ -1452,189 +1463,6 @@ export default function App() {
                           );
                         })()}
                       </div>
-                    </div>
-
-                    <div className="space-y-1.5 apple-datepicker-container relative">
-                      <label className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>Scheduled Date *</label>
-                      <button
-                        type="button"
-                        onClick={toggleDatePicker}
-                        className="w-full text-xs px-4 py-3 rounded-xl focus:outline-none flex items-center justify-between border transition-all cursor-pointer"
-                        style={{
-                          color: 'var(--text-primary)',
-                          background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.015)',
-                          borderColor: showDatePicker ? '#007AFF' : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'),
-                          boxShadow: showDatePicker ? '0 0 0 1px rgba(0,122,255,0.25)' : 'none'
-                        }}
-                      >
-                        <span>{formatSessionDate(newSessionDate) || 'Select Date'}</span>
-                        <Calendar className="h-4 w-4" style={{ color: 'var(--text-tertiary)' }} />
-                      </button>
-
-                      {showDatePicker && (() => {
-                        const firstDayIdx = new Date(pickerYear, pickerMonth, 1).getDay();
-                        const daysInMonth = new Date(pickerYear, pickerMonth + 1, 0).getDate();
-                        const prevMonthDays = new Date(pickerYear, pickerMonth, 0).getDate();
-
-                        const cells = [];
-                        for (let i = firstDayIdx - 1; i >= 0; i--) {
-                          const pmYear = pickerMonth === 0 ? pickerYear - 1 : pickerYear;
-                          const pmMonth = pickerMonth === 0 ? 12 : pickerMonth;
-                          cells.push({
-                            day: prevMonthDays - i,
-                            isCurrentMonth: false,
-                            dateStr: `${pmYear}-${String(pmMonth).padStart(2, '0')}-${String(prevMonthDays - i).padStart(2, '0')}`
-                          });
-                        }
-                        for (let i = 1; i <= daysInMonth; i++) {
-                          cells.push({
-                            day: i,
-                            isCurrentMonth: true,
-                            dateStr: `${pickerYear}-${String(pickerMonth + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`
-                          });
-                        }
-                        const remaining = (7 - (cells.length % 7)) % 7;
-                        for (let i = 1; i <= remaining; i++) {
-                          const nmYear = pickerMonth === 11 ? pickerYear + 1 : pickerYear;
-                          const nmMonth = pickerMonth === 11 ? 1 : pickerMonth + 2;
-                          cells.push({
-                            day: i,
-                            isCurrentMonth: false,
-                            dateStr: `${nmYear}-${String(nmMonth).padStart(2, '0')}-${String(i).padStart(2, '0')}`
-                          });
-                        }
-
-                        const handlePrevMonth = (e) => {
-                          e.stopPropagation();
-                          if (pickerMonth === 0) {
-                            setPickerMonth(11);
-                            setPickerYear(y => y - 1);
-                          } else {
-                            setPickerMonth(m => m - 1);
-                          }
-                        };
-
-                        const handleNextMonth = (e) => {
-                          e.stopPropagation();
-                          if (pickerMonth === 11) {
-                            setPickerMonth(0);
-                            setPickerYear(y => y + 1);
-                          } else {
-                            setPickerMonth(m => m + 1);
-                          }
-                        };
-
-                        const handleSelectDate = (dateStr, e) => {
-                          e.stopPropagation();
-                          setNewSessionDate(dateStr);
-                          setShowDatePicker(false);
-                        };
-
-                        const handleToday = (e) => {
-                          e.stopPropagation();
-                          const todayStr = new Date().toISOString().split('T')[0];
-                          setNewSessionDate(todayStr);
-                          setPickerYear(new Date().getFullYear());
-                          setPickerMonth(new Date().getMonth());
-                          setShowDatePicker(false);
-                        };
-
-                        const todayStr = new Date().toISOString().split('T')[0];
-
-                        return (
-                          <div
-                            className="absolute left-0 mt-2 z-50 rounded-2xl p-4 shadow-xl border animate-dropdown-in"
-                            style={{
-                              width: '280px',
-                              background: isDark ? 'rgba(28,28,30,0.96)' : 'rgba(255,255,255,0.98)',
-                              backdropFilter: 'blur(20px)',
-                              WebkitBackdropFilter: 'blur(20px)',
-                              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-                              boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
-                              top: '100%',
-                              boxSizing: 'border-box'
-                            }}
-                          >
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-xs font-bold text-zinc-900 dark:text-white" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
-                                {MONTH_NAMES[pickerMonth]} {pickerYear}
-                              </span>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={handlePrevMonth}
-                                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 cursor-pointer flex items-center justify-center transition-colors"
-                                >
-                                  <ChevronLeft className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={handleNextMonth}
-                                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 cursor-pointer flex items-center justify-center transition-colors"
-                                >
-                                  <ChevronRight className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-7 gap-1 text-center mb-1.5">
-                              {WEEK_DAYS.map((wd, idx) => (
-                                <span key={idx} className="text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">
-                                  {wd}
-                                </span>
-                              ))}
-                            </div>
-
-                            <div className="grid grid-cols-7 gap-1 text-center">
-                              {cells.map((cell, idx) => {
-                                const isSelected = newSessionDate === cell.dateStr;
-                                const isToday = todayStr === cell.dateStr;
-                                return (
-                                  <button
-                                    key={idx}
-                                    type="button"
-                                    onClick={(e) => handleSelectDate(cell.dateStr, e)}
-                                    className="aspect-square flex items-center justify-center text-[11px] font-semibold rounded-full cursor-pointer relative transition-all"
-                                    style={{
-                                      color: isSelected
-                                        ? '#ffffff'
-                                        : (cell.isCurrentMonth
-                                          ? (isToday ? '#007AFF' : 'var(--text-primary)')
-                                          : 'rgba(142,142,147,0.4)'),
-                                      background: isSelected
-                                        ? '#007AFF'
-                                        : (isToday ? 'rgba(0,122,255,0.08)' : 'transparent'),
-                                      border: isToday && !isSelected ? '1px solid rgba(0,122,255,0.3)' : 'none',
-                                    }}
-                                    onMouseEnter={e => {
-                                      if (!isSelected) {
-                                        e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
-                                      }
-                                    }}
-                                    onMouseLeave={e => {
-                                      if (!isSelected) {
-                                        e.currentTarget.style.background = isToday ? 'rgba(0,122,255,0.08)' : 'transparent';
-                                      }
-                                    }}
-                                  >
-                                    {cell.day}
-                                  </button>
-                                );
-                              })}
-                            </div>
-
-                            <div className="mt-3 pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-                              <button
-                                type="button"
-                                onClick={handleToday}
-                                className="text-[10px] font-bold text-blue-500 hover:text-blue-600 transition-colors cursor-pointer"
-                              >
-                                Today
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })()}
                     </div>
                   </div>
                 </div>

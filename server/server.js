@@ -997,39 +997,40 @@ app.post('/api/audits', async (req, res) => {
   if (!isPrivileged(userRole)) {
     return res.status(403).json({ error: 'Only administrators can create audit sessions.' });
   }
-  if (!name || !audit_date) {
-    return res.status(400).json({ error: 'Name and audit date are required.' });
+  if (!name) {
+    return res.status(400).json({ error: 'Session name is required.' });
   }
+  if (!hospital_id) {
+    return res.status(400).json({ error: 'Target hospital is required.' });
+  }
+  if (!assigned_members || assigned_members.length === 0) {
+    return res.status(400).json({ error: 'At least one auditor must be selected.' });
+  }
+
+  const todayDate = new Date().toISOString().split('T')[0];
+
   try {
     const { data, error } = await supabase
       .from('audit_sessions')
       .insert([{
         name,
-        audit_date,
+        audit_date: todayDate,
         status: 'Active',
         created_at: new Date().toISOString(),
-        hospital_id: hospital_id || null,
+        hospital_id: hospital_id,
         created_by: userName || 'Admin',
       }])
       .select()
       .single();
     if (error) throw error;
 
-    // Fetch all admins to add them by default
-    const { data: admins } = await supabase.from('users').select('id').eq('role', 'Admin');
-    const defaultAdminIds = (admins || []).map(a => a.id);
-
     // Collect all assigned user IDs
     const assignedUserIds = new Set();
-    if (assigned_members && assigned_members.length > 0) {
-      assigned_members.forEach(uid => assignedUserIds.add(parseInt(uid)));
-    }
+    assigned_members.forEach(uid => assignedUserIds.add(parseInt(uid)));
+
     // Always add the creating admin ID
     const adminIdNum = parseInt(userId);
     if (adminIdNum) assignedUserIds.add(adminIdNum);
-    
-    // Always add all system admins by default
-    defaultAdminIds.forEach(id => assignedUserIds.add(id));
 
     // Convert Set back to array and map to insert objects
     if (assignedUserIds.size > 0) {
