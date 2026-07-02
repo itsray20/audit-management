@@ -582,7 +582,7 @@ export default function App() {
     try {
       const newStatus = statusOverride || 'Completed';
       const res = await axios.put(`/api/audits/${activeSession.id}/status`, { status: newStatus });
-      setActiveSession(res.data);
+      setActiveSession(prev => prev ? { ...prev, ...res.data } : res.data);
       await fetchSessions();
       setShowCompleteModal(false);
       setShowReopenModal(false);
@@ -1839,7 +1839,7 @@ export default function App() {
                   )}
 
                   {userPrivileged && (() => {
-                    const hasImported = totalItems > 0 || (activeSession && activeSession.items_count > 0);
+                    const hasImported = totalItems > 0 || (activeSession && (activeSession.total_items > 0 || activeSession.items_count > 0));
                     return (
                       <div className="flex items-center gap-2 shrink-0">
                         <button
