@@ -1369,7 +1369,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>Target Hospital *</label>
                       <div className="relative hospital-dropdown-container">
@@ -1462,6 +1462,21 @@ export default function App() {
                             </div>
                           );
                         })()}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>Scheduled Date *</label>
+                      <div
+                        className="w-full text-xs px-4 py-3 rounded-xl flex items-center justify-between border cursor-not-allowed opacity-75 select-none"
+                        style={{
+                          color: 'var(--text-secondary)',
+                          background: isDark ? 'rgba(255,255,255,0.01)' : 'rgba(0,0,0,0.008)',
+                          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'
+                        }}
+                      >
+                        <span>{formatSessionDate(newSessionDate) || 'Select Date'}</span>
+                        <Calendar className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                       </div>
                     </div>
                   </div>
