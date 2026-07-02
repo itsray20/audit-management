@@ -135,11 +135,17 @@ const generateExcelBuffer = async (sessionId) => {
     is_virtual: false
   }));
 
-  // Discover virtual auditor columns from a lightweight distinct query
-  const { data: virtualAuditors } = await supabase
-    .from('auditor_counts')
-    .select('auditor_name')
-    .not('auditor_name', 'like', 'Physical Quantity%');
+  // Discover virtual auditor columns — scoped to THIS session only via JOIN
+  const { data: virtualAuditors } = await supabase.rpc('exec_raw_sql', {
+    query_text: `
+      SELECT DISTINCT ac.auditor_name
+      FROM auditor_counts ac
+      JOIN items i ON i.id = ac.item_id
+      WHERE i.audit_session_id = $1::bigint
+        AND ac.auditor_name NOT LIKE 'Physical Quantity%'
+    `,
+    query_params: [String(sessionId)]
+  });
 
   const existingColumnIds = new Set(columns.map(c => c.id));
   const seenVirtual = new Set();
