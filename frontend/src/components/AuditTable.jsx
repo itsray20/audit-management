@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp,
   Search, X, Edit3, Lock, CheckCircle, Snowflake, UserX, RefreshCw,
-  Maximize2, Minimize2
+  Maximize2, Minimize2, Users
 } from 'lucide-react';
 import GlassSelect from './GlassSelect';
 
@@ -57,6 +57,8 @@ function InlineCountCellInner({
   rowIdx,
   colIdx,
   bulkEditMode,
+  isOnAudit,
+  onWarning,
 }) {
   // Find existing count: match by user_id (string) or legacy slot
   const existingCount = item.auditor_counts?.find(
@@ -191,7 +193,20 @@ function InlineCountCellInner({
             onChange={(e) => setLocalVal(e.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={() => save(localVal)}
-            onFocus={(e) => e.target.select()}
+            onFocus={(e) => {
+              if (isPrivileged && !isOnAudit) {
+                e.target.blur();
+                onWarning();
+                return;
+              }
+              e.target.select();
+            }}
+            onClick={(e) => {
+              if (isPrivileged && !isOnAudit) {
+                e.target.blur();
+                onWarning();
+              }
+            }}
             className={`w-14 text-center text-xs font-mono px-1 py-0.5 rounded border bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-[#0071e3] focus:border-[#0071e3] transition-all ${isOwnColumn ? 'ring-1 ring-[#0071e3] border-[#0071e3]' : ''}`}
             placeholder="—"
           />
@@ -202,13 +217,23 @@ function InlineCountCellInner({
     );
   }
 
+  const handleCellClick = () => {
+    if (isPrivileged && !isOnAudit) {
+      onWarning();
+      return;
+    }
+    if (!editing) {
+      setEditing(true);
+    }
+  };
+
   // Editable click cell
   if (isEditableColumn) {
     return (
       <td
         className="px-1.5 py-1 text-center border-r border-zinc-200 dark:border-zinc-700/60 transition-all hover:bg-zinc-50 dark:hover:bg-zinc-900/30 cursor-pointer relative"
         style={{ overflow: 'visible' }}
-        onClick={() => !editing && setEditing(true)}
+        onClick={handleCellClick}
       >
         {/* Static display — always rendered so the row height never changes */}
         <div className="flex items-center justify-center gap-1 group/edit" style={{ visibility: editing ? 'hidden' : 'visible' }}>
@@ -318,9 +343,15 @@ export default function AuditTable({
   setSortBy,
   sortOrder,
   setSortOrder,
+  auditMembers = [],
 }) {
   const [bulkEditMode, setBulkEditMode] = useState(false);
+  const [showJoinAuditWarning, setShowJoinAuditWarning] = useState(false);
   const [localSearch, setLocalSearch] = useState(search);
+  
+  const isOnAudit = auditMembers?.some(
+    m => String(m.user_id) === String(currentUser?.id) && m.status !== 'removed'
+  );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const tableRef = useRef(null);
   const tableScrollRef = useRef(null);
@@ -707,6 +738,8 @@ export default function AuditTable({
                           rowIdx={rowIdx}
                           colIdx={colIdx}
                           bulkEditMode={bulkEditMode}
+                          isOnAudit={isOnAudit}
+                          onWarning={() => setShowJoinAuditWarning(true)}
                         />
                       ))}
 
@@ -769,6 +802,71 @@ export default function AuditTable({
             <ChevronUp className="h-4 w-4" />
             <span className="text-[9px] font-extrabold uppercase tracking-wider pr-1">Back to Top</span>
           </button>
+        )}
+
+        {showJoinAuditWarning && (
+          <>
+            {/* Backdrop Overlay */}
+            <div 
+              className="fixed inset-0 z-50 cursor-pointer animate-fade-in" 
+              style={{ 
+                background: 'rgba(0,0,0,0.55)', 
+                backdropFilter: 'blur(10px)',
+                width: '100vw',
+                height: '100vh',
+                top: 0,
+                left: 0
+              }}
+              onClick={() => setShowJoinAuditWarning(false)}
+            />
+            {/* Centered Modal Card */}
+            <div 
+              className="fixed z-50 rounded-3xl p-6 text-center" 
+              style={{ 
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                maxWidth: '340px', 
+                width: '90%', 
+                background: isDark ? '#1c1c1e' : '#fff', 
+                border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)', 
+                boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+                animation: 'bait-fade-scale 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both'
+              }}
+            >
+              <style>{`
+                @keyframes bait-fade-scale {
+                  from { opacity: 0; transform: translate(-50%, -50%) scale(0.93); }
+                  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                }
+              `}</style>
+              <div 
+                className="h-14 w-14 rounded-2xl flex items-center justify-center mx-auto mb-3" 
+                style={{ 
+                  background: 'rgba(255,149,0,0.1)', 
+                  color: '#FF9500' 
+                }}
+              >
+                <Users className="h-7 w-7" />
+              </div>
+              <h3 className="font-extrabold text-base mb-1" style={{ color: 'var(--text-primary)' }}>
+                Join Audit First 👥
+              </h3>
+              <p className="text-xs mb-5 leading-relaxed font-sans text-center" style={{ color: 'var(--text-tertiary)' }}>
+                You must join this audit session to make edits. Please click <b>Join Audit</b> in the Assigned Members panel first.
+              </p>
+              <button 
+                onClick={() => setShowJoinAuditWarning(false)} 
+                className="w-full py-2.5 rounded-xl text-sm font-bold text-white cursor-pointer active:scale-[0.98] transition-all" 
+                style={{ 
+                  background: 'linear-gradient(135deg, #007AFF, #5856D6)',
+                  boxShadow: '0 4px 12px rgba(0,122,255,0.3)'
+                }}
+              >
+                Understood
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>

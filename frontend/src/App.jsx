@@ -920,6 +920,7 @@ export default function App() {
   const userAuditMember = auditMembers.find(m => String(m.user_id) === String(currentUser?.id));
   const userAuditStatus = userAuditMember?.status || 'active';
   const userAuditFrozen = userAuditStatus === 'frozen' || userAuditStatus === 'removed';
+  const isUserOnAudit = !!userAuditMember && userAuditMember.status !== 'removed';
 
   if (!currentUser) {
     return <Login onLogin={handleLogin} />;
@@ -2058,6 +2059,7 @@ export default function App() {
                       onCountSaved={handleCountSaved}
                       onCountSyncReady={handleCountSyncReady}
                       activeSession={activeSession}
+                      auditMembers={auditMembers}
                       sortBy={sortBy}
                       setSortBy={setSortBy}
                       sortOrder={sortOrder}
@@ -2899,7 +2901,7 @@ export default function App() {
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="overflow-y-auto flex-1 custom-scrollbar">
-                        <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked || (userAuditFrozen && !userPrivileged) || userIsFrozen} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} auditMembers={auditMembers} />
+                        <DetailsPanel item={selectedItem} currentUser={currentUser} auditIsLocked={auditIsLocked || (userAuditFrozen && !userPrivileged) || userIsFrozen || !isUserOnAudit} onClose={() => setSelectedItem(null)} onUpdate={() => { fetchItems(); fetchDashboardMetrics(); }} isDark={isDark} roleNamesMap={roleNamesMap} auditMembers={auditMembers} />
                       </div>
                     </div>
                   </div>,
