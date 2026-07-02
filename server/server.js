@@ -2000,7 +2000,7 @@ app.get('/api/hospitals/:id/audits/export', async (req, res) => {
       .select('id, name')
       .eq('hospital_id', id);
     if (auditsErr) throw auditsErr;
-    const archive = archiver.create('zip', { zlib: { level: 9 } });
+    const archive = archiver('zip', { zlib: { level: 9 } });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="hospital_${id}_audits.zip"`);
     archive.pipe(res);
