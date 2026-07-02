@@ -92,8 +92,10 @@ function UserCard({ user, onEdit, onFreeze, onRemove, onViewProfile, isDark, cur
         boxShadow: hovered 
           ? (isDark ? `0 20px 45px rgba(0,0,0,0.55), 0 0 16px ${cfg.color}25` : `0 14px 32px rgba(0,0,0,0.08), 0 0 12px ${cfg.color}15`)
           : (isDark ? '0 12px 36px rgba(0,0,0,0.35)' : '0 6px 20px rgba(0,0,0,0.04)'),
-        width: '260px',
+        width: '100%',
+        maxWidth: '280px',
         height: '380px',
+        margin: '0 auto',
         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", sans-serif'
       }}
     >
@@ -952,7 +954,7 @@ export default function TeamManagement({ isDark, currentUser }) {
             {leadershipUsers.length === 0 ? (
               <p className="text-sm text-center py-6" style={{ color: 'var(--text-tertiary)' }}>No leadership members found.</p>
             ) : (
-              <div className="flex flex-wrap gap-6 justify-start">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '24px' }}>
                 {leadershipUsers.map(u => (
                   <UserCard
                     key={u.id}
@@ -978,7 +980,7 @@ export default function TeamManagement({ isDark, currentUser }) {
             {employeeUsers.length === 0 ? (
               <p className="text-sm text-center py-6" style={{ color: 'var(--text-tertiary)' }}>No employees added yet.</p>
             ) : (
-              <div className="flex flex-wrap gap-6 justify-start">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '24px' }}>
                 {employeeUsers.map(u => (
                   <UserCard
                     key={u.id}
