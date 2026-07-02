@@ -11,7 +11,14 @@ const { generateExcelBuffer, generateWordReport, calculateItemValues } = require
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({
+  origin: true,           // reflect the request origin (allows any origin)
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-role', 'x-user-name', 'x-user-id'],
+  exposedHeaders: ['Content-Disposition', 'Content-Type', 'Content-Length'],
+  credentials: false,
+  optionsSuccessStatus: 200
+}));
 app.use(express.json());
 
 // In-memory tracking of active/online users based on HTTP requests headers

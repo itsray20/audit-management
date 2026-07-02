@@ -10,7 +10,9 @@ import {
 } from 'lucide-react';
 
 const getAbsoluteUrl = (path) => {
-  const base = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+  // Use axios.defaults.baseURL (already set from VITE_API_URL in App.jsx) as the
+  // canonical source of truth so both Axios and native fetch hit the same server.
+  const base = (axios.defaults.baseURL || import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
   const cleanPath = path.replace(/^\/+/, '');
   return base ? `${base}/${cleanPath}` : `/${cleanPath}`;
 };
@@ -204,9 +206,13 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
         }));
         
         const url = getAbsoluteUrl(`/api/audits/${audit.id}/export?role=${currentUser.role}`);
-        const response = await fetch(url);
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/octet-stream' }
+        });
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: Failed to fetch audit report`);
+          const errText = await response.text().catch(() => '');
+          throw new Error(`HTTP ${response.status}${errText ? ': ' + errText.slice(0, 120) : ': Failed to fetch audit report'}`);
         }
         const data = await response.arrayBuffer();
 
