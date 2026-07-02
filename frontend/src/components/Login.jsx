@@ -279,7 +279,7 @@ export default function Login({ onLogin }) {
             <p className="text-sm mb-6 text-zinc-300 leading-relaxed font-medium font-mono">
               Developer ka account hack karre? Itte kharab halaat ho gaye tumhare? 😭
               <span className="block mt-3 text-xs text-zinc-400 font-normal border-t border-white/5 pt-3 font-sans">
-                Ab chup-chaap apna account kholo aur kaam pe lago, nai toh <b>Rohan bhaiya</b> tumhara biryani ka hissa cut kar dete! 🍲❌
+                Ab chup-chaap apna account kholo aur kaam pe lago ustaad, nai toh pure stock calculations ka biryani ban jata! 🍲📊
               </span>
             </p>
             <button 
