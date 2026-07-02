@@ -857,18 +857,70 @@ app.delete('/api/hospitals/:id', async (req, res) => {
     return res.status(403).json({ error: 'Only administrators can delete hospitals.' });
   }
   try {
-    const { error } = await supabase.from('hospitals').delete().eq('id', id);
-    if (error) {
-      if (error.message && error.message.includes('violates foreign key constraint')) {
-        return res.status(400).json({ error: 'Cannot delete this hospital because it has active or past audit sessions associated with it.' });
+    // Fetch all audit sessions associated with this hospital
+    const { data: sessions, error: fetchErr } = await supabase
+      .from('audit_sessions')
+      .select('id')
+      .eq('hospital_id', id);
+    if (fetchErr) throw fetchErr;
+
+    const sessionIds = (sessions || []).map(s => s.id);
+    if (sessionIds.length > 0) {
+      // Fetch all items belonging to these sessions
+      const { data: items, error: itemsErr } = await supabase
+        .from('items')
+        .select('id')
+        .in('audit_session_id', sessionIds);
+      if (itemsErr) throw itemsErr;
+
+      const itemIds = (items || []).map(item => item.id);
+      if (itemIds.length > 0) {
+        // Delete all physical counts for these items
+        const { error: countsDelErr } = await supabase
+          .from('auditor_counts')
+          .delete()
+          .in('item_id', itemIds);
+        if (countsDelErr) throw countsDelErr;
+
+        // Delete the items
+        const { error: itemsDelErr } = await supabase
+          .from('items')
+          .delete()
+          .in('id', itemIds);
+        if (itemsDelErr) throw itemsDelErr;
       }
-      throw error;
+
+      // Delete assigned session members
+      const { error: membersDelErr } = await supabase
+        .from('audit_members')
+        .delete()
+        .in('audit_session_id', sessionIds);
+      if (membersDelErr) throw membersDelErr;
+
+      // Delete audit trails for these sessions
+      const { error: trailDelErr } = await supabase
+        .from('audit_trail')
+        .delete()
+        .in('audit_session_id', sessionIds);
+      if (trailDelErr) throw trailDelErr;
+
+      // Delete the audit sessions records
+      const { error: sessionsDelErr } = await supabase
+        .from('audit_sessions')
+        .delete()
+        .in('id', sessionIds);
+      if (sessionsDelErr) throw sessionsDelErr;
     }
+
+    // Delete the hospital record
+    const { error: hospitalDelErr } = await supabase
+      .from('hospitals')
+      .delete()
+      .eq('id', id);
+    if (hospitalDelErr) throw hospitalDelErr;
+
     res.json({ success: true });
   } catch (err) {
-    if (err.message && err.message.includes('violates foreign key constraint')) {
-      return res.status(400).json({ error: 'Cannot delete this hospital because it has active or past audit sessions associated with it.' });
-    }
     res.status(500).json({ error: err.message });
   }
 });

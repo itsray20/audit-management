@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
+import JSZip from 'jszip';
 import {
   Building2, Plus, Phone, MapPin, Calendar, ChevronRight,
   RefreshCw, Edit3, X, Lock, Package, ClipboardList, Trash2,
   ArrowLeft, Activity, CheckCircle2, Clock3, BarChart3,
   Hash, AlertTriangle, Search, ChevronDown, Check, ChevronLeft
 } from 'lucide-react';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 const ACCENT_COLORS = [
   { solid: '#007AFF', light: 'rgba(0,122,255,0.12)'   },
@@ -39,7 +42,13 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
   const [showAddForm, setShowAddForm]           = useState(false);
   const [editTarget, setEditTarget]             = useState(null);
   const [deleteTarget, setDeleteTarget]         = useState(null);
+  const [associatedAudits, setAssociatedAudits] = useState([]);
+  const [loadingAssociatedAudits, setLoadingAssociatedAudits] = useState(false);
+  const [auditDeleteSearch, setAuditDeleteSearch] = useState('');
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [zipStatus, setZipStatus] = useState({ active: false, total: 0, current: 0, currentName: '' });
   const [isDeleting, setIsDeleting]             = useState(false);
+  const zipCancelledRef                         = useRef(false);
   const [toast, setToast]                       = useState(null);
   const [newHospital, setNewHospital]           = useState({ name: '', location: '', contact_number: '' });
   const [editForm, setEditForm]                 = useState({ name: '', location: '', contact_number: '' });
@@ -100,6 +109,27 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
 
   useEffect(() => { fetchHospitals(); }, []);
 
+  useEffect(() => {
+    if (deleteTarget) {
+      setLoadingAssociatedAudits(true);
+      setAuditDeleteSearch('');
+      setDeleteConfirmInput('');
+      axios.get(`/api/hospitals/${deleteTarget.id}/audits`)
+        .then(res => {
+          setAssociatedAudits(res.data);
+        })
+        .catch(err => {
+          console.error(err);
+          setAssociatedAudits([]);
+        })
+        .finally(() => {
+          setLoadingAssociatedAudits(false);
+        });
+    } else {
+      setAssociatedAudits([]);
+    }
+  }, [deleteTarget]);
+
   const showToast = (text, ok = true) => {
     setToast({ text, ok });
     setTimeout(() => setToast(null), 3500);
@@ -140,8 +170,79 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
     finally { setIsDeleting(false); }
   };
 
+  const handleZipDownload = async () => {
+    if (!deleteTarget || associatedAudits.length === 0) return;
+    
+    setZipStatus({
+      active: true,
+      total: associatedAudits.length,
+      current: 0,
+      currentName: 'Initializing backup...'
+    });
+    
+    const zip = new JSZip();
+    
+    try {
+      zipCancelledRef.current = false;
+      for (let i = 0; i < associatedAudits.length; i++) {
+        if (zipCancelledRef.current) {
+          showToast('Backup download cancelled.', false);
+          setZipStatus({ active: false, total: 0, current: 0, currentName: '' });
+          return;
+        }
+
+        const audit = associatedAudits[i];
+        setZipStatus(prev => ({
+          ...prev,
+          current: i,
+          currentName: `Fetching report for "${audit.name}"...`
+        }));
+        
+        const url = `/api/audits/${audit.id}/export?role=${currentUser.role}`;
+        const res = await axios.get(url, { responseType: 'arraybuffer' });
+
+        if (zipCancelledRef.current) {
+          showToast('Backup download cancelled.', false);
+          setZipStatus({ active: false, total: 0, current: 0, currentName: '' });
+          return;
+        }
+        
+        const safeName = audit.name.replace(/[/\\?%*:|"<>\s]/g, '_');
+        zip.file(`${safeName}_session_${audit.id}.xlsx`, res.data);
+      }
+      
+      if (zipCancelledRef.current) return;
+
+      setZipStatus(prev => ({
+        ...prev,
+        current: associatedAudits.length,
+        currentName: 'Generating ZIP archive...'
+      }));
+      
+      const content = await zip.generateAsync({ type: 'blob' });
+
+      if (zipCancelledRef.current) return;
+      
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(content);
+      link.download = `${deleteTarget.name.replace(/[/\\?%*:|"<>\s]/g, '_')}-audits.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      setZipStatus(prev => ({
+        ...prev,
+        currentName: '✓ Backup Complete!'
+      }));
+    } catch (err) {
+      console.error(err);
+      showToast('Zipping failed: ' + (err.message || 'Error occurred'), false);
+      setZipStatus(prev => ({ ...prev, active: false }));
+    }
+  };
+
   /* ── Shared modal renderer ── */
-  const Modals = () => (
+  const renderModals = () => (
     <>
       {/* Edit */}
       {editTarget && (
@@ -165,27 +266,393 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
       )}
 
       {/* Delete */}
-      {deleteTarget && (
-        <Backdrop onClose={() => setDeleteTarget(null)}>
-          <Sheet isDark={isDark} c={c} width={360}>
-            <div style={{ textAlign:'center', padding: '8px 0 20px' }}>
-              <div style={{ width:52, height:52, borderRadius:16, background:'rgba(255,59,48,0.12)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}>
-                <Trash2 style={{ width:22, height:22, color:'#FF3B30' }} />
+      {deleteTarget && (() => {
+        if (loadingAssociatedAudits) {
+          return (
+            <Backdrop onClose={() => setDeleteTarget(null)}>
+              <Sheet isDark={isDark} c={c} width={360}>
+                <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+                  <RefreshCw className="animate-spin" style={{ width: 28, height: 28, margin: '0 auto 16px', color: '#007AFF' }} />
+                  <p style={{ ...SYS.subhead, color: c.t1 }}>Loading associated audits...</p>
+                </div>
+              </Sheet>
+            </Backdrop>
+          );
+        }
+
+        if (associatedAudits.length === 0) {
+          // Standard simple delete modal
+          return (
+            <Backdrop onClose={() => setDeleteTarget(null)}>
+              <Sheet isDark={isDark} c={c} width={360}>
+                <div style={{ textAlign:'center', padding: '8px 0 20px' }}>
+                  <div style={{ width:52, height:52, borderRadius:16, background:'rgba(255,59,48,0.12)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}>
+                    <Trash2 style={{ width:22, height:22, color:'#FF3B30' }} />
+                  </div>
+                  <p style={{ ...SYS.subhead, color: c.t1, marginBottom:8 }}>Delete Hospital</p>
+                  <p style={{ ...SYS.caption, color: c.t3, marginBottom:24 }}>
+                    Permanently delete <strong style={{ color: c.t2 }}>{deleteTarget.name}</strong>? This cannot be undone.
+                  </p>
+                  <div style={{ display:'flex', gap:10 }}>
+                    <button onClick={() => setDeleteTarget(null)} style={ghostBtn(c)}>Cancel</button>
+                    <button disabled={isDeleting} onClick={confirmDelete}
+                      style={{ ...primaryBtnStyle, flex:1, background:'linear-gradient(180deg,#f87171,#dc2626)', boxShadow:'0 4px 14px rgba(220,38,38,0.28)', opacity: isDeleting ? 0.6 : 1, cursor: isDeleting ? 'not-allowed' : 'pointer' }}>
+                      {isDeleting ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              </Sheet>
+            </Backdrop>
+          );
+        }
+
+        // Large Warning & Backups Modal
+        const filteredList = associatedAudits.filter(a =>
+          a.name.toLowerCase().includes(auditDeleteSearch.toLowerCase()) ||
+          String(a.id).includes(auditDeleteSearch) ||
+          (a.created_by || '').toLowerCase().includes(auditDeleteSearch.toLowerCase())
+        );
+
+        const deleteDisabled = deleteConfirmInput !== deleteTarget.name || isDeleting;
+
+        return (
+          <Backdrop onClose={() => setDeleteTarget(null)}>
+            <Sheet isDark={isDark} c={c} width={850}>
+              <div style={{ display: 'flex', gap: '28px', minHeight: '440px' }}>
+                
+                {/* LEFT COLUMN: Warnings, Confirmation, Deletion Action */}
+                <div style={{ width: '320px', display: 'flex', flexDirection: 'column', gap: '16px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: `1px solid ${c.sep}` }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,59,48,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FF3B30', flexShrink: 0 }}>
+                      <AlertTriangle style={{ width: 20, height: 20 }} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 800, margin: 0, color: c.t1, letterSpacing: '-0.02em' }}>
+                        Delete Hospital
+                      </h3>
+                      <p style={{ fontSize: 10, margin: '1px 0 0', color: '#FF3B30', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                        Critical Warning
+                      </p>
+                    </div>
+                  </div>
+
+                  <p style={{ fontSize: 12, color: c.t2, lineHeight: 1.5, margin: 0 }}>
+                    Deleting the facility <strong style={{ color: c.t1 }}>{deleteTarget.name}</strong> will also permanently delete all <strong style={{ color: c.t1 }}>{associatedAudits.length} associated audit sessions</strong>.
+                  </p>
+
+                  <div style={{ background: isDark ? 'rgba(255,59,48,0.05)' : 'rgba(255,59,48,0.03)', border: '1px solid rgba(255,59,48,0.12)', borderRadius: '12px', padding: '12px', fontSize: 11, color: '#FF3B30', lineHeight: 1.4 }}>
+                    ⚠️ <strong>This action is irreversible.</strong> All items, counts, physical check records, and audit logs will be wiped from the database.
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 'auto' }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: c.t3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Type hospital name to confirm:
+                    </label>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: c.t1, marginBottom: 2 }}>
+                      "{deleteTarget.name}"
+                    </div>
+                    <input
+                      type="text"
+                      value={deleteConfirmInput}
+                      onChange={e => setDeleteConfirmInput(e.target.value)}
+                      placeholder={deleteTarget.name}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        fontSize: 12,
+                        borderRadius: 10,
+                        background: isDark ? '#2c2c2e' : '#f2f2f7',
+                        border: deleteConfirmInput === deleteTarget.name ? '1px solid #FF3B30' : 'none',
+                        color: c.t1,
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, marginTop: '8px' }}>
+                    <button onClick={() => setDeleteTarget(null)} style={{ ...ghostBtn(c), padding: '10px 12px', flex: 1, fontSize: 12 }}>
+                      Cancel
+                    </button>
+                    <button
+                      disabled={deleteDisabled}
+                      onClick={confirmDelete}
+                      style={{
+                        flex: 1.8,
+                        padding: '10px 12px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        borderRadius: 12,
+                        border: 'none',
+                        color: '#ffffff',
+                        background: deleteDisabled ? 'rgba(150,150,150,0.4)' : 'linear-gradient(180deg,#f87171,#dc2626)',
+                        boxShadow: deleteDisabled ? 'none' : '0 4px 14px rgba(220,38,38,0.25)',
+                        cursor: deleteDisabled ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {isDeleting ? 'Deleting...' : 'Delete Facility'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* VERTICAL DIVIDER */}
+                <div style={{ width: '1px', background: c.sep, alignSelf: 'stretch' }} />
+
+                {/* RIGHT COLUMN: Backup Download All as ZIP & Searchable Audits List */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: `1px solid ${c.sep}` }}>
+                    <div>
+                      <h4 style={{ fontSize: 14, fontWeight: 800, margin: 0, color: c.t1 }}>
+                        Associated Audit Sessions ({associatedAudits.length})
+                      </h4>
+                      <p style={{ fontSize: 10, margin: '2px 0 0', color: c.t3 }}>
+                        Search and backup sessions individually or in bulk.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleZipDownload}
+                      style={{
+                        padding: '8px 14px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        borderRadius: 10,
+                        border: 'none',
+                        color: '#ffffff',
+                        background: '#34C759',
+                        boxShadow: '0 2px 8px rgba(52,199,89,0.25)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <Package style={{ width: 14, height: 14 }} /> Download ZIP Backup
+                    </button>
+                  </div>
+
+                  {/* Search box */}
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <Search style={{ position: 'absolute', left: 12, width: 14, height: 14, color: c.t3 }} />
+                    <input
+                      type="text"
+                      placeholder="Search sessions by name, ID or creator..."
+                      value={auditDeleteSearch}
+                      onChange={e => setAuditDeleteSearch(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px 8px 34px',
+                        fontSize: 12,
+                        borderRadius: 10,
+                        background: isDark ? '#2c2c2e' : '#f2f2f7',
+                        border: 'none',
+                        color: c.t1,
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+
+                  {/* Audits Scroll Pane */}
+                  <div style={{
+                    flex: 1,
+                    minHeight: '280px',
+                    maxHeight: '340px',
+                    overflowY: 'auto',
+                    border: `1px solid ${c.sep}`,
+                    borderRadius: '14px',
+                    background: isDark ? 'rgba(255,255,255,0.01)' : 'rgba(0,0,0,0.005)'
+                  }}>
+                    {filteredList.length === 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '40px 0', color: c.t3 }}>
+                        <ClipboardList style={{ width: 28, height: 28, strokeWidth: 1.5, marginBottom: 8, opacity: 0.7 }} />
+                        <span style={{ fontSize: 12 }}>No matching audits found</span>
+                      </div>
+                    ) : (
+                      filteredList.map((audit) => {
+                        const statusColor = audit.status === 'Completed' ? '#34C759' : '#007AFF';
+                        return (
+                          <div
+                            key={audit.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '12px 16px',
+                              borderBottom: `1px solid ${c.sep}`,
+                              fontSize: 12
+                            }}
+                          >
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxWidth: '70%' }}>
+                              <span style={{ fontWeight: 700, color: c.t1 }} className="truncate">
+                                {audit.name}
+                              </span>
+                              <span style={{ fontSize: 10, color: c.t3 }}>
+                                ID: {audit.id} • Created by: {audit.created_by || 'Admin'} • Date: {audit.audit_date || 'N/A'}
+                              </span>
+                            </div>
+                            
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                              <span style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                color: statusColor,
+                                background: `${statusColor}14`,
+                                padding: '2px 6px',
+                                borderRadius: '4px'
+                              }}>
+                                {audit.status}
+                              </span>
+                              <a
+                                href={`${API_BASE}/api/audits/${audit.id}/export?role=${currentUser.role}`}
+                                download
+                                style={{
+                                  padding: '6px 12px',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  borderRadius: '8px',
+                                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                                  color: '#34C759',
+                                  background: isDark ? 'rgba(52,199,89,0.08)' : 'rgba(52,199,89,0.06)',
+                                  textDecoration: 'none',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                📊 Excel
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
               </div>
-              <p style={{ ...SYS.subhead, color: c.t1, marginBottom:8 }}>Delete Hospital</p>
-              <p style={{ ...SYS.caption, color: c.t3, marginBottom:24 }}>
-                Permanently delete <strong style={{ color: c.t2 }}>{deleteTarget.name}</strong>? This cannot be undone.
-              </p>
-              <div style={{ display:'flex', gap:10 }}>
-                <button onClick={() => setDeleteTarget(null)} style={ghostBtn(c)}>Cancel</button>
-                <button disabled={isDeleting} onClick={confirmDelete}
-                  style={{ ...primaryBtnStyle, flex:1, background:'linear-gradient(180deg,#f87171,#dc2626)', boxShadow:'0 4px 14px rgba(220,38,38,0.28)', opacity: isDeleting ? 0.6 : 1, cursor: isDeleting ? 'not-allowed' : 'pointer' }}>
-                  {isDeleting ? 'Deleting…' : 'Delete'}
-                </button>
-              </div>
+            </Sheet>
+          </Backdrop>
+        );
+      })()}
+
+      {/* Zipping blocking progress modal */}
+      {zipStatus.active && createPortal(
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.55)',
+          backdropFilter: 'blur(4px)',
+          WebkitBackdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 15000,
+          padding: '16px'
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '380px',
+            background: isDark ? '#1c1c1e' : '#ffffff',
+            border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)',
+            boxShadow: '0 32px 80px rgba(0,0,0,0.5)',
+            borderRadius: '24px',
+            padding: '32px 24px 24px',
+            textAlign: 'center',
+            boxSizing: 'border-box'
+          }}>
+            <div style={{
+              width: 54,
+              height: 54,
+              borderRadius: '16px',
+              background: 'rgba(52,199,89,0.1)',
+              border: '1px solid rgba(52,199,89,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px',
+              color: '#34C759'
+            }}>
+              <RefreshCw className="animate-spin" style={{ width: 24, height: 24 }} />
             </div>
-          </Sheet>
-        </Backdrop>
+            
+            <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, color: c.t1, letterSpacing: '-0.02em' }}>
+              {zipStatus.current >= zipStatus.total ? '✓ Backup Complete!' : 'Zipping & Downloading...'}
+            </h3>
+            
+            <p style={{ fontSize: 12, color: c.t3, marginBottom: 20, lineHeight: 1.4 }}>
+              {zipStatus.current >= zipStatus.total
+                ? <span>Your zip backup for <strong>{deleteTarget?.name}</strong> has been generated successfully.</span>
+                : <span>Bundling audit reports for <strong>{deleteTarget?.name}</strong>. Please do not close or reload the browser.</span>}
+            </p>
+
+            {/* Progress status card */}
+            <div style={{
+              background: isDark ? '#2c2c2e' : '#f2f2f7',
+              borderRadius: '14px',
+              padding: '14px',
+              textAlign: 'left',
+              marginBottom: 24
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: c.t2, marginBottom: 6 }}>
+                <span>Progress</span>
+                <span>{zipStatus.current} of {zipStatus.total}</span>
+              </div>
+              <div style={{ width: '100%', height: 6, background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)', borderRadius: 3, overflow: 'hidden', marginBottom: 10 }}>
+                <div style={{ width: `${(zipStatus.current / zipStatus.total) * 100}%`, height: '100%', background: '#34C759', transition: 'width 0.3s ease' }} />
+              </div>
+              <p style={{ fontSize: 10, color: c.t3, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {zipStatus.currentName}
+              </p>
+            </div>
+
+            {/* Close / Cancel Button */}
+            {zipStatus.current < zipStatus.total ? (
+              <button
+                onClick={() => {
+                  zipCancelledRef.current = true;
+                  setZipStatus({ active: false, total: 0, current: 0, currentName: '' });
+                  showToast('Backup download cancelled.', false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  borderRadius: 12,
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`,
+                  color: '#FF3B30',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                Cancel Download
+              </button>
+            ) : (
+              <button
+                onClick={() => setZipStatus({ active: false, total: 0, current: 0, currentName: '' })}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  borderRadius: 12,
+                  border: 'none',
+                  color: '#ffffff',
+                  background: '#34C759',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(52,199,89,0.2)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                Close
+              </button>
+            )}
+          </div>
+        </div>,
+        document.body
       )}
     </>
   );
@@ -1052,7 +1519,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
           </div>
         </div>
 
-        <Modals />
+        {renderModals()}
       </div>
     );
   }
@@ -1384,7 +1851,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
         </div>
       )}
 
-      <Modals />
+      {renderModals()}
     </div>
   );
 }
@@ -1402,7 +1869,7 @@ function Toast({ toast }) {
 function Backdrop({ children, onClose }) {
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-      style={{ background:'rgba(0,0,0,0.5)', backdropFilter:'blur(10px)', WebkitBackdropFilter:'blur(10px)' }}
+      style={{ background:'rgba(0,0,0,0.4)', backdropFilter:'blur(4px)', WebkitBackdropFilter:'blur(4px)' }}
       onClick={onClose}>
       {children}
     </div>,
