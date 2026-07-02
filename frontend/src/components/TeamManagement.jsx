@@ -410,6 +410,9 @@ export default function TeamManagement({ isDark, currentUser }) {
       await axios.put(`/api/users/${user.id}/status`, { status: 'active' });
       showMsg(`${user.name} re-hired successfully.`);
       fetchUsers();
+      if (selectedProfileId && String(selectedProfileId) === String(user.id)) {
+        refreshProfile(user.id);
+      }
     } catch (err) {
       showMsg(err.response?.data?.error || 'Failed to re-hire.', 'error');
     }
