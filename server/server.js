@@ -115,7 +115,122 @@ const fetchSessionData = async (id) => {
   const locations = [...new Set((itemsList || []).map(i => i.location).filter(Boolean))].sort();
   const stores = [...new Set((itemsList || []).map(i => i.store_name).filter(Boolean))].sort();
 
-  return { processedList, suppliers, locations, stores, ALLOWED_AUDITORS, auditDate: session.audit_date, auditMembers };
+  // 3. Fetch audit trail for member performance
+  const { data: trailData } = await supabase
+    .from('audit_trail')
+    .select('user_name, items!inner(audit_session_id)')
+    .eq('items.audit_session_id', id);
+
+  // 4. Fetch user details for audit members
+  const memberUserIds = (auditMembers || []).map(m => m.user_id);
+  let memberNames = {};
+  if (memberUserIds.length > 0) {
+    const { data: memberUsers } = await supabase.from('users').select('*').in('id', memberUserIds);
+    (memberUsers || []).forEach(u => {
+      const { cleanName } = decodeUser(u);
+      memberNames[u.id] = { name: cleanName, role: u.role };
+    });
+  }
+
+  // Pre-calculate dashboard metrics
+  const totalItems = processedList.length;
+  const activeCounts = (allCounts || []).filter(c => ALLOWED_AUDITORS.includes(String(c.auditor_name)));
+  const auditedItemIds = new Set(activeCounts.map(c => c.item_id));
+  const itemsAudited = session.status === 'Completed'
+    ? totalItems
+    : processedList.filter(item => auditedItemIds.has(item.id) || Number(item.manual_add || 0) !== 0 || Number(item.manual_recheck || 0) !== 0).length;
+
+  const totalStockValue = processedList.reduce((sum, item) => sum + ((item.system_qty || 0) * (item.unit_purchase_rate || 0)), 0);
+  const totalExcessValue = processedList.filter(i => i.category === 'Excess').reduce((sum, i) => sum + i.differenceValue, 0);
+  const totalShortageValue = processedList.filter(i => i.category === 'Shortage').reduce((sum, i) => sum + i.differenceValue, 0);
+  const extraFoundValue = processedList.filter(i => i.category === 'Extra Found').reduce((sum, i) => sum + (i.totalPhysical * (i.unit_purchase_rate || 0)), 0);
+  const extraFoundQty = processedList.filter(i => i.category === 'Extra Found').reduce((sum, i) => sum + (i.totalPhysical || 0), 0);
+  const expiredValue = processedList.filter(i => i.category === 'Expired Stock').reduce((sum, i) => sum + (i.totalPhysical * (i.unit_purchase_rate || 0)), 0);
+  const otValue = processedList.filter(i => i.category === 'Other').reduce((sum, i) => sum + i.differenceValue, 0);
+
+  const grossShortage = totalShortageValue;
+  const netShortage = grossShortage + extraFoundValue;
+  const netAuditDifference = totalExcessValue + totalShortageValue + extraFoundValue + otValue;
+
+  const totalSystemExpiryValue = processedList.filter(i => i.expiryStatus === 'EXPIRED').reduce((sum, i) => sum + ((i.system_qty || 0) * (i.unit_purchase_rate || 0)), 0);
+  const totalPhysicalExpiryValue = processedList.filter(i => i.expiryStatus === 'EXPIRED').reduce((sum, i) => sum + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
+  const totalPerfectMatchValue = processedList.filter(i => i.isCounted && (i.totalPhysical || 0) === (i.system_qty || 0)).reduce((sum, i) => sum + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
+
+  let expCount = 0, expVal = 0, nearCount = 0, nearVal = 0, goodCount = 0, goodVal = 0;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const ninetyDays = new Date(today); ninetyDays.setDate(today.getDate() + 90);
+
+  processedList.forEach(item => {
+    const val = (item.totalPhysical || item.system_qty || 0) * (item.unit_purchase_rate || 0);
+    if (!item.expiry_date) { goodCount++; goodVal += val; return; }
+    const expDate = new Date(item.expiry_date); expDate.setHours(0, 0, 0, 0);
+    if (expDate < today) { expCount++; expVal += val; }
+    else if (expDate <= ninetyDays) { nearCount++; nearVal += val; }
+    else { goodCount++; goodVal += val; }
+  });
+
+  const categoryBreakdown = {
+    'Excess': processedList.filter(i => i.category === 'Excess').length,
+    'Shortage': processedList.filter(i => i.category === 'Shortage').length,
+    'Extra Found': processedList.filter(i => i.category === 'Extra Found').length,
+    'Expired Stock': processedList.filter(i => i.category === 'Expired Stock').length,
+    'Other': processedList.filter(i => i.category === 'Other').length,
+    'Perfect Match': processedList.filter(i => i.category === 'Perfect Match').length
+  };
+
+  const locationBreakdown = {}, supplierBreakdown = {};
+  processedList.forEach(i => {
+    const loc = i.location || 'Unknown';
+    const sup = i.supplier || 'Unknown';
+    locationBreakdown[loc] = (locationBreakdown[loc] || 0) + i.differenceValue;
+    supplierBreakdown[sup] = (supplierBreakdown[sup] || 0) + i.differenceValue;
+  });
+
+  const topShortages = [...processedList].filter(i => i.differenceValue < 0)
+    .sort((a, b) => a.differenceValue - b.differenceValue).slice(0, 5)
+    .map(i => ({ item_name: i.item_name, batch_no: i.batch_no, expiry_date: i.expiry_date, system_qty: i.system_qty, totalPhysical: i.totalPhysical, difference: i.difference, unit_purchase_rate: i.unit_purchase_rate, differenceValue: i.differenceValue }));
+
+  const topExcesses = [...processedList].filter(i => i.differenceValue > 0)
+    .sort((a, b) => b.differenceValue - a.differenceValue).slice(0, 5)
+    .map(i => ({ item_name: i.item_name, batch_no: i.batch_no, expiry_date: i.expiry_date, system_qty: i.system_qty, totalPhysical: i.totalPhysical, difference: i.difference, unit_purchase_rate: i.unit_purchase_rate, differenceValue: i.differenceValue }));
+
+  const changeCounts = {};
+  (trailData || []).forEach(t => {
+    changeCounts[t.user_name] = (changeCounts[t.user_name] || 0) + 1;
+  });
+
+  const countCounts = {};
+  (allCounts || []).forEach(c => {
+    countCounts[String(c.auditor_name)] = (countCounts[String(c.auditor_name)] || 0) + 1;
+  });
+
+  const memberPerformance = (auditMembers || []).map(m => {
+    const uid = String(m.user_id);
+    const trailCount = (changeCounts[uid] || 0);
+    const countEntries = (countCounts[uid] || 0);
+    return {
+      user_id: m.user_id,
+      name: memberNames[m.user_id]?.name || `User ${m.user_id}`,
+      role: memberNames[m.user_id]?.role || '',
+      status: m.status,
+      change_count: trailCount + countEntries,
+      entry_count: countEntries,
+    };
+  }).sort((a, b) => b.change_count - a.change_count);
+
+  const dashboardData = {
+    totalItems, itemsAudited, totalStockValue,
+    totalExcessValue, totalShortageValue, extraFoundValue, extraFoundQty,
+    expiredValue, otValue, grossShortage, netShortage, netAuditDifference,
+    totalSystemExpiryValue, totalPhysicalExpiryValue, totalPerfectMatchValue,
+    categoryBreakdown, locationBreakdown, supplierBreakdown,
+    expiryBreakdown: { expired: { count: expCount, value: expVal }, nearExpiry: { count: nearCount, value: nearVal }, goodStock: { count: goodCount, value: goodVal } },
+    topShortages, topExcesses,
+    memberPerformance,
+    auditMembers: auditMembers || [],
+  };
+
+  return { processedList, suppliers, locations, stores, ALLOWED_AUDITORS, auditDate: session.audit_date, auditMembers, dashboardData };
 };
 
 // Helper to pre-compile and store data in sessionCache
@@ -1270,6 +1385,7 @@ app.get('/api/audits/:id/items', async (req, res) => {
 
   try {
     const cacheKey = String(id);
+    console.log(`[CACHE DEBUG] items endpoint hit-test for session ${cacheKey}: ${sessionCache.has(cacheKey)}`);
     if (sessionCache.has(cacheKey)) {
       const cached = sessionCache.get(cacheKey);
       const { processedList, suppliers, locations, stores } = cached;
@@ -1792,161 +1908,16 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
   }
 
   try {
-    const { data: session, error: sErr } = await supabase.from('audit_sessions').select('*').eq('id', id).single();
-    if (sErr || !session) return res.status(404).json({ error: 'Session not found' });
-
-    let processedItems = [];
-    let auditMembers = [];
-    let allCounts = [];
-    let ALLOWED_AUDITORS = [];
-
     const cacheKey = String(id);
+    console.log(`[CACHE DEBUG] dashboard endpoint hit-test for session ${cacheKey}: ${sessionCache.has(cacheKey)}`);
     if (sessionCache.has(cacheKey)) {
       const cached = sessionCache.get(cacheKey);
-      processedItems = cached.processedList;
-      ALLOWED_AUDITORS = cached.ALLOWED_AUDITORS || [];
-      
-      const { data: members } = await supabase.from('audit_members').select('*').eq('audit_session_id', id);
-      auditMembers = members || [];
-      
-      processedItems.forEach(item => {
-        if (item.auditor_counts) allCounts.push(...item.auditor_counts);
-      });
-    } else {
-      const data = await fetchSessionData(id);
-      processedItems = data.processedList;
-      ALLOWED_AUDITORS = data.ALLOWED_AUDITORS;
-      auditMembers = data.auditMembers || [];
-      
-      processedItems.forEach(item => {
-        if (item.auditor_counts) allCounts.push(...item.auditor_counts);
-      });
-      sessionCache.set(cacheKey, data);
+      return res.json(cached.dashboardData);
     }
 
-    const totalItems = processedItems.length;
-
-    const activeCounts = (allCounts || []).filter(c => ALLOWED_AUDITORS.includes(String(c.auditor_name)));
-    const auditedItemIds = new Set(activeCounts.map(c => c.item_id));
-    const itemsAudited = session.status === 'Completed'
-      ? totalItems
-      : processedItems.filter(item => auditedItemIds.has(item.id) || Number(item.manual_add || 0) !== 0 || Number(item.manual_recheck || 0) !== 0).length;
-
-    const totalStockValue = processedItems.reduce((sum, item) => sum + ((item.system_qty || 0) * (item.unit_purchase_rate || 0)), 0);
-    const totalExcessValue = processedItems.filter(i => i.category === 'Excess').reduce((sum, i) => sum + i.differenceValue, 0);
-    const totalShortageValue = processedItems.filter(i => i.category === 'Shortage').reduce((sum, i) => sum + i.differenceValue, 0);
-    const extraFoundValue = processedItems.filter(i => i.category === 'Extra Found').reduce((sum, i) => sum + (i.totalPhysical * (i.unit_purchase_rate || 0)), 0);
-    const extraFoundQty = processedItems.filter(i => i.category === 'Extra Found').reduce((sum, i) => sum + (i.totalPhysical || 0), 0);
-    const expiredValue = processedItems.filter(i => i.category === 'Expired Stock').reduce((sum, i) => sum + (i.totalPhysical * (i.unit_purchase_rate || 0)), 0);
-    const otValue = processedItems.filter(i => i.category === 'Other').reduce((sum, i) => sum + i.differenceValue, 0);
-
-    const grossShortage = totalShortageValue;
-    const netShortage = grossShortage + extraFoundValue;
-    const netAuditDifference = totalExcessValue + totalShortageValue + extraFoundValue + otValue;
-
-    const totalSystemExpiryValue = processedItems.filter(i => i.expiryStatus === 'EXPIRED').reduce((sum, i) => sum + ((i.system_qty || 0) * (i.unit_purchase_rate || 0)), 0);
-    const totalPhysicalExpiryValue = processedItems.filter(i => i.expiryStatus === 'EXPIRED').reduce((sum, i) => sum + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
-    const totalPerfectMatchValue = processedItems.filter(i => i.isCounted && (i.totalPhysical || 0) === (i.system_qty || 0)).reduce((sum, i) => sum + ((i.totalPhysical || 0) * (i.unit_purchase_rate || 0)), 0);
-
-    // Expiry breakdown
-    let expCount = 0, expVal = 0, nearCount = 0, nearVal = 0, goodCount = 0, goodVal = 0;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const ninetyDays = new Date(today); ninetyDays.setDate(today.getDate() + 90);
-
-    processedItems.forEach(item => {
-      const val = (item.totalPhysical || item.system_qty || 0) * (item.unit_purchase_rate || 0);
-      if (!item.expiry_date) { goodCount++; goodVal += val; return; }
-      const expDate = new Date(item.expiry_date); expDate.setHours(0, 0, 0, 0);
-      if (expDate < today) { expCount++; expVal += val; }
-      else if (expDate <= ninetyDays) { nearCount++; nearVal += val; }
-      else { goodCount++; goodVal += val; }
-    });
-
-    const categoryBreakdown = {
-      'Excess': processedItems.filter(i => i.category === 'Excess').length,
-      'Shortage': processedItems.filter(i => i.category === 'Shortage').length,
-      'Extra Found': processedItems.filter(i => i.category === 'Extra Found').length,
-      'Expired Stock': processedItems.filter(i => i.category === 'Expired Stock').length,
-      'Other': processedItems.filter(i => i.category === 'Other').length,
-      'Perfect Match': processedItems.filter(i => i.category === 'Perfect Match').length
-    };
-
-    const locationBreakdown = {}, supplierBreakdown = {};
-    processedItems.forEach(i => {
-      const loc = i.location || 'Unknown';
-      const sup = i.supplier || 'Unknown';
-      locationBreakdown[loc] = (locationBreakdown[loc] || 0) + i.differenceValue;
-      supplierBreakdown[sup] = (supplierBreakdown[sup] || 0) + i.differenceValue;
-    });
-
-    const topShortages = [...processedItems].filter(i => i.differenceValue < 0)
-      .sort((a, b) => a.differenceValue - b.differenceValue).slice(0, 5)
-      .map(i => ({ item_name: i.item_name, batch_no: i.batch_no, expiry_date: i.expiry_date, system_qty: i.system_qty, totalPhysical: i.totalPhysical, difference: i.difference, unit_purchase_rate: i.unit_purchase_rate, differenceValue: i.differenceValue }));
-
-    const topExcesses = [...processedItems].filter(i => i.differenceValue > 0)
-      .sort((a, b) => b.differenceValue - a.differenceValue).slice(0, 5)
-      .map(i => ({ item_name: i.item_name, batch_no: i.batch_no, expiry_date: i.expiry_date, system_qty: i.system_qty, totalPhysical: i.totalPhysical, difference: i.difference, unit_purchase_rate: i.unit_purchase_rate, differenceValue: i.differenceValue }));
-
-    // ── Member Performance ──
-    // Count audit_trail entries per user for this session
-    const itemIds = (processedItems || []).map(i => i.id);
-    let memberPerformance = [];
-
-    if (itemIds.length > 0) {
-      const { data: trailData } = await supabase
-        .from('audit_trail')
-        .select('user_name')
-        .in('item_id', itemIds);
-
-      // Count entries per user_name
-      const changeCounts = {};
-      (trailData || []).forEach(t => {
-        changeCounts[t.user_name] = (changeCounts[t.user_name] || 0) + 1;
-      });
-
-      // Also count auditor_counts entries per auditor
-      const countCounts = {};
-      (allCounts || []).forEach(c => {
-        countCounts[String(c.auditor_name)] = (countCounts[String(c.auditor_name)] || 0) + 1;
-      });
-
-      // Enrich members with names
-      const memberUserIds = (auditMembers || []).map(m => m.user_id);
-      let memberNames = {};
-      if (memberUserIds.length > 0) {
-        const { data: memberUsers } = await supabase.from('users').select('*').in('id', memberUserIds);
-        (memberUsers || []).forEach(u => {
-          const { cleanName } = decodeUser(u);
-          memberNames[u.id] = { name: cleanName, role: u.role };
-        });
-      }
-
-      memberPerformance = (auditMembers || []).map(m => {
-        const uid = String(m.user_id);
-        const trailCount = (changeCounts[uid] || 0);
-        const countEntries = (countCounts[uid] || 0);
-        return {
-          user_id: m.user_id,
-          name: memberNames[m.user_id]?.name || `User ${m.user_id}`,
-          role: memberNames[m.user_id]?.role || '',
-          status: m.status,
-          change_count: trailCount + countEntries,
-          entry_count: countEntries,
-        };
-      }).sort((a, b) => b.change_count - a.change_count);
-    }
-
-    res.json({
-      totalItems, itemsAudited, totalStockValue,
-      totalExcessValue, totalShortageValue, extraFoundValue, extraFoundQty,
-      expiredValue, otValue, grossShortage, netShortage, netAuditDifference,
-      totalSystemExpiryValue, totalPhysicalExpiryValue, totalPerfectMatchValue,
-      categoryBreakdown, locationBreakdown, supplierBreakdown,
-      expiryBreakdown: { expired: { count: expCount, value: expVal }, nearExpiry: { count: nearCount, value: nearVal }, goodStock: { count: goodCount, value: goodVal } },
-      topShortages, topExcesses,
-      memberPerformance,
-      auditMembers: auditMembers || [],
-    });
+    const data = await fetchSessionData(id);
+    sessionCache.set(cacheKey, data);
+    return res.json(data.dashboardData);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
