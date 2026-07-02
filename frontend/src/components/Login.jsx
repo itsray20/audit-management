@@ -8,11 +8,19 @@ export default function Login({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError]               = useState('');
   const [loading, setLoading]           = useState(false);
+  const [showDeveloperBaitModal, setShowDeveloperBaitModal] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     if (!username || !password) { setError('Please enter both username and password.'); return; }
+    
+    // Intercept bait developer login attempts
+    if (username.toLowerCase().trim() === 'rohan' && password === 'rohan123') {
+      setShowDeveloperBaitModal(true);
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await axios.post('/api/login', { username, password });
@@ -196,6 +204,61 @@ export default function Login({ onLogin }) {
           Official Pharmacy Auditing Tool · 2026
         </p>
       </div>
+
+      {showDeveloperBaitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <style>{`
+            @keyframes bait-fade-scale {
+              from { opacity: 0; transform: scale(0.93); }
+              to { opacity: 1; transform: scale(1); }
+            }
+          `}</style>
+          {/* Backdrop Overlay */}
+          <div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-md transition-opacity duration-300 animate-fade-in" 
+            onClick={() => setShowDeveloperBaitModal(false)}
+          />
+          {/* Centered Modal Card */}
+          <div 
+            className="w-full max-w-sm rounded-3xl p-6 text-center relative z-10"
+            style={{ 
+              background: 'rgba(30, 30, 32, 0.85)', 
+              border: '1px solid rgba(255,255,255,0.08)', 
+              boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(20px)',
+              animation: 'bait-fade-scale 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both'
+            }}
+          >
+            <div 
+              className="h-16 w-16 rounded-2xl flex items-center justify-center mx-auto mb-4" 
+              style={{ 
+                background: 'linear-gradient(135deg, #FF3B30, #FF9500)', 
+                color: '#fff',
+                boxShadow: '0 8px 24px rgba(255,59,48,0.3)'
+              }}
+            >
+              <span className="text-3xl">💻</span>
+            </div>
+            <h3 className="font-extrabold text-xl mb-2 text-white leading-tight tracking-tight">
+              Nice Try! 🚨
+            </h3>
+            <p className="text-sm mb-6 text-zinc-300 leading-relaxed font-medium">
+              Did you really think you could hack the Developer's account? 
+              <span className="block mt-2 font-normal text-zinc-400">Rohan's vault is protected by ancient runes and quantum encryption. Go log in as yourself! 😉</span>
+            </p>
+            <button 
+              onClick={() => setShowDeveloperBaitModal(false)} 
+              className="w-full py-3 rounded-xl text-sm font-bold text-white cursor-pointer active:scale-[0.98] transition-all" 
+              style={{ 
+                background: 'linear-gradient(135deg, #007AFF, #5856D6)',
+                boxShadow: '0 4px 12px rgba(0,122,255,0.3)'
+              }}
+            >
+              Okay, I apologize!
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
