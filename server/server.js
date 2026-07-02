@@ -1986,18 +1986,31 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────
 // REPORT EXPORT (Admin/Developer/CoFounder only)
 // ─────────────────────────────────────────────────────────────────
-app.get('/api/audits/:id/export', async (req, res) => {
+app.get('/api/hospitals/:id/audits/export', async (req, res) => {
   const { id } = req.params;
   const requesterRole = req.headers['x-user-role'] || req.query.role;
   if (!isUpperTier(requesterRole)) {
     return res.status(403).json({ error: 'Export access restricted.' });
   }
   try {
-    const buffer = await generateExcelBuffer(id);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=Audit_Report_Session_${id}.xlsx`);
-    res.send(buffer);
+    // Get all audits for this hospital
+    const { data: audits, error: auditsErr } = await supabase
+      .from('audit_sessions')
+      .select('id, name')
+      .eq('hospital_id', id);
+    if (auditsErr) throw auditsErr;
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    res.attachment(`hospital_${id}_audits.zip`);
+    archive.pipe(res);
+    for (const audit of audits) {
+      const buffer = await generateExcelBuffer(audit.id);
+      const safeName = audit.name.replace(/[\/"*?<>|\s]/g, '_');
+      archive.append(buffer, { name: `${safeName}_audit_${audit.id}.xlsx` });
+    }
+    await archive.finalize();
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });

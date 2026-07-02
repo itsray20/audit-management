@@ -177,17 +177,15 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
   };
 
   const handleZipDownload = async () => {
-    if (!deleteTarget || associatedAudits.length === 0) return;
+    if (!deleteTarget) return;
     
     setZipStatus({
       active: true,
-      total: associatedAudits.length,
+      total: 1,
       current: 0,
-      currentName: 'Initializing backup...',
+      currentName: 'Requesting server export...',
       error: null
     });
-    
-    const zip = new JSZip();
     
     try {
       zipCancelledRef.current = false;
@@ -231,7 +229,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
       setZipStatus(prev => ({
         ...prev,
         current: associatedAudits.length,
-        currentName: 'Generating ZIP archive...'
+        currentName: '✓ Backup Complete!'
       }));
       
       const content = await zip.generateAsync({ type: 'blob' });
