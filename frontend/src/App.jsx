@@ -146,7 +146,19 @@ export default function App() {
   const [roleNamesMap, setRoleNamesMap] = useState({});
 
   // Audit members for current session
-  const [auditMembers, setAuditMembers] = useState([]);
+  const [auditMembers, setAuditMembers] = useState(() => {
+    const saved = localStorage.getItem('activeSessionMembers');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        const savedSessionId = localStorage.getItem('activeSessionId');
+        if (parsed && String(parsed.sessionId) === String(savedSessionId)) {
+          return parsed.members || [];
+        }
+      } catch (_) { }
+    }
+    return [];
+  });
   
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showReopenModal, setShowReopenModal] = useState(false);
@@ -238,6 +250,19 @@ export default function App() {
   }, [activeSession, currentUser]);
 
   useEffect(() => {
+    if (currentUser) {
+      if (activeSession && auditMembers.length > 0) {
+        localStorage.setItem('activeSessionMembers', JSON.stringify({
+          sessionId: activeSession.id,
+          members: auditMembers
+        }));
+      } else if (!activeSession) {
+        localStorage.removeItem('activeSessionMembers');
+      }
+    }
+  }, [auditMembers, activeSession, currentUser]);
+
+  useEffect(() => {
     if (activeSession && currentUser) {
       fetchAuditMembers();
       if (isUpperTier(currentUser.role)) {
@@ -310,6 +335,7 @@ export default function App() {
     localStorage.removeItem('activeTab');
     localStorage.removeItem('activeSessionId');
     localStorage.removeItem('activeSession');
+    localStorage.removeItem('activeSessionMembers');
     delete axios.defaults.headers.common['x-user-role'];
     delete axios.defaults.headers.common['x-user-name'];
     delete axios.defaults.headers.common['x-user-id'];
