@@ -296,8 +296,8 @@ export default function App() {
 
         if (data.status === 'frozen' || data.status === 'removed') {
           alert(data.status === 'frozen'
-            ? 'Your account has been frozen by the administrator. You will be logged out.'
-            : 'Your account has been removed by the administrator. You will be logged out.');
+            ? 'Your account has been frozen. Please contact your administrator.'
+            : 'Your account has been removed. Please contact your administrator.');
           handleLogout();
           return;
         }

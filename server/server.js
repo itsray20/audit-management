@@ -44,45 +44,64 @@ const sendRealtimeUpdate = (userId, eventType, data) => {
 };
 
 // SSE streaming endpoint
-app.get('/api/realtime/stream', (req, res) => {
+app.get('/api/realtime/stream', async (req, res) => {
   const userId = req.query.userId;
   if (!userId) {
     return res.status(400).send('userId is required');
   }
 
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
-  });
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('status')
+      .eq('id', userId)
+      .single();
 
-  // Send initial comment to establish connection
-  res.write(': ok\n\n');
-
-  // Keep-alive ping interval
-  const pingInterval = setInterval(() => {
-    try {
-      res.write(': ping\n\n');
-    } catch (err) {
-      // client connection already closed or broken
+    if (error || !user) {
+      return res.status(404).send('User not found');
     }
-  }, 30000);
 
-  if (!sseClients.has(String(userId))) {
-    sseClients.set(String(userId), new Set());
-  }
-  sseClients.get(String(userId)).add(res);
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    });
 
-  req.on('close', () => {
-    clearInterval(pingInterval);
-    const clients = sseClients.get(String(userId));
-    if (clients) {
-      clients.delete(res);
-      if (clients.size === 0) {
-        sseClients.delete(String(userId));
+    // Send initial comment to establish connection
+    res.write(': ok\n\n');
+
+    if (user.status === 'frozen' || user.status === 'removed') {
+      res.write(`event: user_update\ndata: ${JSON.stringify({ status: user.status })}\n\n`);
+      return res.end();
+    }
+
+    // Keep-alive ping interval
+    const pingInterval = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch (err) {
+        // client connection already closed or broken
       }
+    }, 30000);
+
+    if (!sseClients.has(String(userId))) {
+      sseClients.set(String(userId), new Set());
     }
-  });
+    sseClients.get(String(userId)).add(res);
+
+    req.on('close', () => {
+      clearInterval(pingInterval);
+      const clients = sseClients.get(String(userId));
+      if (clients) {
+        clients.delete(res);
+        if (clients.size === 0) {
+          sseClients.delete(String(userId));
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
 });
 
 // Session cache to prevent repeated database hits on large items tables
@@ -381,6 +400,9 @@ app.post('/api/login', async (req, res) => {
     // Check status first
     if (user.status === 'removed') {
       return res.status(403).json({ error: 'Your account has been removed. Please contact your administrator.' });
+    }
+    if (user.status === 'frozen') {
+      return res.status(403).json({ error: 'Your account has been frozen. Please contact your administrator.' });
     }
 
     const { cleanName, storedPassword, auditorSlot } = decodeUser(user);
