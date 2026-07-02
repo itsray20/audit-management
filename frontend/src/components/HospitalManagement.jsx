@@ -204,16 +204,20 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
         }));
         
         const url = getAbsoluteUrl(`/api/audits/${audit.id}/export?role=${currentUser.role}`);
-        const res = await axios.get(url, { responseType: 'arraybuffer' });
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: Failed to fetch audit report`);
+        }
+        const data = await response.arrayBuffer();
 
         if (zipCancelledRef.current) {
           showToast('Backup download cancelled.', false);
-          setZipStatus({ active: false, total: 0, current: 0, currentName: '' });
+          setZipStatus({ active: false, total: 0, current: 0, currentName: '', error: null });
           return;
         }
         
         const safeName = audit.name.replace(/[/\\?%*:|"<>\s]/g, '_');
-        zip.file(`${safeName}_session_${audit.id}.xlsx`, res.data);
+        zip.file(`${safeName}_session_${audit.id}.xlsx`, data);
       }
       
       if (zipCancelledRef.current) return;
