@@ -24,6 +24,12 @@ import AuditMembersPanel from './components/AuditMembersPanel';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 axios.defaults.baseURL = API_BASE;
 
+const getAbsoluteUrl = (path) => {
+  const base = API_BASE.replace(/\/+$/, '');
+  const cleanPath = path.replace(/^\/+/, '');
+  return base ? `${base}/${cleanPath}` : `/${cleanPath}`;
+};
+
 // ─── Role Helpers ────────────────────────────────────────────────
 const isPrivileged = (role) => role === 'Admin' || role === 'Developer';
 const isUpperTier = (role) => isPrivileged(role) || role === 'CoFounder';
@@ -1740,10 +1746,10 @@ export default function App() {
                   {/* Export — Admin/Dev/CoFounder only */}
                   {userUpperTier && (
                     <>
-                      <a href={`${API_BASE}/api/audits/${activeSession.id}/export?role=${userRole}`} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all shrink-0" style={{ background: 'rgba(52,199,89,0.12)', border: '1px solid rgba(52,199,89,0.25)', color: '#34C759' }} download>
+                      <a href={getAbsoluteUrl(`/api/audits/${activeSession.id}/export?role=${userRole}`)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all shrink-0" style={{ background: 'rgba(52,199,89,0.12)', border: '1px solid rgba(52,199,89,0.25)', color: '#34C759' }} download>
                         <DownloadCloud className="h-3.5 w-3.5" /> Excel <span className="hidden sm:inline">Report</span>
                       </a>
-                      <a href={`${API_BASE}/api/audits/${activeSession.id}/export/word?role=${userRole}`} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all shrink-0" style={{ background: 'rgba(0,122,255,0.12)', border: '1px solid rgba(0,122,255,0.25)', color: '#007AFF' }} download>
+                      <a href={getAbsoluteUrl(`/api/audits/${activeSession.id}/export/word?role=${userRole}`)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all shrink-0" style={{ background: 'rgba(0,122,255,0.12)', border: '1px solid rgba(0,122,255,0.25)', color: '#007AFF' }} download>
                         <FileText className="h-3.5 w-3.5" /> Word <span className="hidden sm:inline">Report</span>
                       </a>
                     </>
@@ -2589,7 +2595,7 @@ export default function App() {
                                             {/* Excel export */}
                                             {userUpperTier && (
                                               <a
-                                                href={`${API_BASE}/api/audits/${s.id}/export?role=${userRole}`}
+                                                href={getAbsoluteUrl(`/api/audits/${s.id}/export?role=${userRole}`)}
                                                 className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase border decoration-none transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap"
                                                 style={{
                                                   background: 'rgba(52,199,89,0.08)',
@@ -2608,7 +2614,7 @@ export default function App() {
                                             {/* Word export */}
                                             {userUpperTier && (
                                               <a
-                                                href={`${API_BASE}/api/audits/${s.id}/export/word?role=${userRole}`}
+                                                href={getAbsoluteUrl(`/api/audits/${s.id}/export/word?role=${userRole}`)}
                                                 className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase border decoration-none transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap"
                                                 style={{
                                                   background: 'rgba(0,122,255,0.08)',

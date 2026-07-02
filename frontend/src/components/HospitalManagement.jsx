@@ -9,7 +9,11 @@ import {
   Hash, AlertTriangle, Search, ChevronDown, Check, ChevronLeft
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const getAbsoluteUrl = (path) => {
+  const base = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+  const cleanPath = path.replace(/^\/+/, '');
+  return base ? `${base}/${cleanPath}` : `/${cleanPath}`;
+};
 
 const ACCENT_COLORS = [
   { solid: '#007AFF', light: 'rgba(0,122,255,0.12)'   },
@@ -198,7 +202,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
           currentName: `Fetching report for "${audit.name}"...`
         }));
         
-        const url = `${API_BASE}/api/audits/${audit.id}/export?role=${currentUser.role}`;
+        const url = getAbsoluteUrl(`/api/audits/${audit.id}/export?role=${currentUser.role}`);
         const res = await axios.get(url, { responseType: 'arraybuffer' });
 
         if (zipCancelledRef.current) {
@@ -504,7 +508,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
                                 {audit.status}
                               </span>
                               <a
-                                href={`${API_BASE}/api/audits/${audit.id}/export?role=${currentUser.role}`}
+                                href={getAbsoluteUrl(`/api/audits/${audit.id}/export?role=${currentUser.role}`)}
                                 download
                                 style={{
                                   padding: '6px 12px',
