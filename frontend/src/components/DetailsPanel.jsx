@@ -562,7 +562,7 @@ export default function DetailsPanel({
             </div>
           </div>
         </div>,
-        document.body
+        document.fullscreenElement || document.body
       )}
     </div>
   );
