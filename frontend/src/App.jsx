@@ -422,14 +422,33 @@ export default function App() {
       try {
         const data = JSON.parse(e.data);
         console.log('SSE: Received audit member update:', data);
-        if (activeSession && String(data.audit_session_id) === String(activeSession.id)) {
-          fetchAuditMembers();
+
+        if (data.action === 'removed') {
+          // This user was removed from this audit session — kick them out instantly
+          setSystemModal({ type: 'audit_removed', sessionId: data.audit_session_id });
+          setActiveSession(prev => {
+            if (prev && String(prev.id) === String(data.audit_session_id)) {
+              localStorage.removeItem('activeSessionId');
+              localStorage.removeItem('activeSession');
+              return null;
+            }
+            return prev;
+          });
+          fetchSessions(); // removes it from their sessions list
+          return;
         }
-        // If this user was just added to a session they weren't viewing, reload sessions
+
         if (data.action === 'added') {
+          // This user was added to a session — give instant access
           fetchSessions();
           fetchAuditMembers();
           setSystemModal({ type: 'added', sessionId: data.audit_session_id });
+          return;
+        }
+
+        // For any other status change (frozen/active on audit level) just refresh the member list
+        if (activeSession && String(data.audit_session_id) === String(activeSession.id)) {
+          fetchAuditMembers();
         }
       } catch (err) {
         console.error('Error processing audit_member_update event:', err);
@@ -458,7 +477,7 @@ export default function App() {
 
   // Countdown tick for frozen/removed system modal
   useEffect(() => {
-    if (!systemModal || systemModal.type === 'added') return;
+    if (!systemModal || systemModal.type === 'added' || systemModal.type === 'audit_removed') return;
     if (modalCountdown <= 0) return;
     const tick = setInterval(() => {
       setModalCountdown(prev => Math.max(0, prev - 1));
@@ -3206,7 +3225,7 @@ export default function App() {
               background: isDark ? '#1c1c1e' : '#ffffff',
               border: systemModal.type === 'added'
                 ? '1px solid rgba(52,199,89,0.3)'
-                : systemModal.type === 'frozen'
+                : (systemModal.type === 'frozen' || systemModal.type === 'audit_removed')
                   ? '1px solid rgba(255,149,0,0.3)'
                   : '1px solid rgba(255,59,48,0.3)',
               boxShadow: '0 40px 80px rgba(0,0,0,0.4)',
@@ -3219,16 +3238,20 @@ export default function App() {
               alignItems: 'center', justifyContent: 'center', fontSize: 32,
               background: systemModal.type === 'added'
                 ? 'rgba(52,199,89,0.12)'
-                : systemModal.type === 'frozen'
+                : (systemModal.type === 'frozen' || systemModal.type === 'audit_removed')
                   ? 'rgba(255,149,0,0.12)'
                   : 'rgba(255,59,48,0.12)',
               border: systemModal.type === 'added'
                 ? '1px solid rgba(52,199,89,0.25)'
-                : systemModal.type === 'frozen'
+                : (systemModal.type === 'frozen' || systemModal.type === 'audit_removed')
                   ? '1px solid rgba(255,149,0,0.25)'
                   : '1px solid rgba(255,59,48,0.25)',
             }}>
-              {systemModal.type === 'added' ? '✅' : systemModal.type === 'frozen' ? '🔒' : '🚫'}
+              {systemModal.type === 'added'
+                ? '✅'
+                : (systemModal.type === 'frozen' || systemModal.type === 'audit_removed')
+                  ? '⚠️'
+                  : '🚫'}
             </div>
 
             {/* Title */}
@@ -3236,7 +3259,7 @@ export default function App() {
               fontSize: 20, fontWeight: 800, marginBottom: 10, letterSpacing: '-0.03em',
               color: systemModal.type === 'added'
                 ? 'rgb(52,199,89)'
-                : systemModal.type === 'frozen'
+                : (systemModal.type === 'frozen' || systemModal.type === 'audit_removed')
                   ? 'rgb(255,149,0)'
                   : 'rgb(255,59,48)'
             }}>
@@ -3244,7 +3267,9 @@ export default function App() {
                 ? 'You\'ve Been Added to the Audit! 🎉'
                 : systemModal.type === 'frozen'
                   ? 'Account Frozen'
-                  : 'Account Deactivated'}
+                  : systemModal.type === 'audit_removed'
+                    ? 'Audit Access Revoked ⚠️'
+                    : 'Account Deactivated'}
             </h2>
 
             {/* Message */}
@@ -3253,7 +3278,9 @@ export default function App() {
                 ? 'An administrator has added you to this audit session. You now have full access to the Audit Sheet and can start auditing immediately.'
                 : systemModal.type === 'frozen'
                   ? 'Your account has been temporarily frozen by an administrator. You will be logged out now. Please contact your administrator for further assistance.'
-                  : 'Your account has been deactivated by an administrator. You will be logged out now. Please contact your administrator for further assistance.'}
+                  : systemModal.type === 'audit_removed'
+                    ? 'An administrator has removed you from this audit session. You no longer have permission to access or edit this audit.'
+                    : 'Your account has been deactivated by an administrator. You will be logged out now. Please contact your administrator for further assistance.'}
             </p>
 
             {/* CTA */}
@@ -3264,19 +3291,25 @@ export default function App() {
                 borderRadius: '14px', border: 'none', cursor: 'pointer', color: '#fff',
                 background: systemModal.type === 'added'
                   ? 'linear-gradient(135deg, #34C759, #30D158)'
-                  : systemModal.type === 'frozen'
+                  : (systemModal.type === 'frozen' || systemModal.type === 'audit_removed')
                     ? 'linear-gradient(135deg, #FF9500, #FF6000)'
                     : 'linear-gradient(135deg, #FF3B30, #FF2D20)',
                 boxShadow: systemModal.type === 'added'
                   ? '0 4px 16px rgba(52,199,89,0.35)'
-                  : '0 4px 16px rgba(255,59,48,0.35)',
+                  : (systemModal.type === 'frozen' || systemModal.type === 'audit_removed')
+                    ? '0 4px 16px rgba(255,149,0,0.35)'
+                    : '0 4px 16px rgba(255,59,48,0.35)',
               }}
             >
-              {systemModal.type === 'added' ? 'Start Auditing →' : 'Understood'}
+              {systemModal.type === 'added'
+                ? 'Start Auditing →'
+                : systemModal.type === 'audit_removed'
+                  ? 'Okay'
+                  : 'Understood'}
             </button>
 
             {/* Countdown ring for frozen/removed */}
-            {systemModal.type !== 'added' && (() => {
+            {systemModal.type !== 'added' && systemModal.type !== 'audit_removed' && (() => {
               const TOTAL = 15;
               const pct = modalCountdown / TOTAL;
               const r = 22;

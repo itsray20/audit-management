@@ -1077,6 +1077,39 @@ const enforceWritePermission = async (req, res, next) => {
   next();
 };
 
+const enforceSessionAccess = async (req, res, next) => {
+  const userRole = req.headers['x-user-role'];
+  const userId = req.headers['x-user-id'];
+
+  // Admin and Developer bypass all session member restrictions
+  if (isPrivileged(userRole)) return next();
+
+  let sessionId = null;
+  if (req.params.id) {
+    if (req.originalUrl.includes('/api/audits/')) {
+      sessionId = req.params.id;
+    } else if (req.originalUrl.includes('/api/items/')) {
+      const { data: item } = await supabase.from('items').select('audit_session_id').eq('id', req.params.id).single();
+      if (item) sessionId = item.audit_session_id;
+    }
+  }
+
+  if (sessionId && userId) {
+    // Check if user is active member in this audit session
+    const { data: member, error } = await supabase
+      .from('audit_members')
+      .select('status')
+      .eq('audit_session_id', parseInt(sessionId))
+      .eq('user_id', parseInt(userId))
+      .single();
+
+    if (error || !member || member.status !== 'active') {
+      return res.status(403).json({ error: 'Access denied. You are not an active member of this audit session.' });
+    }
+  }
+  next();
+};
+
 // ─────────────────────────────────────────────────────────────────
 // AUDIT SESSION ROUTES
 // ─────────────────────────────────────────────────────────────────
@@ -1094,7 +1127,8 @@ app.get('/api/audits', async (req, res) => {
     if (sErr) throw sErr;
 
     let sessions = allSessions;
-    if (userRole === 'Employee' && userId) {
+    // Employees AND CoFounders only see sessions where they are active members
+    if ((userRole === 'Employee' || userRole === 'CoFounder') && userId) {
       const { data: memberData, error: mErr } = await supabase
         .from('audit_members')
         .select('audit_session_id')
@@ -1423,7 +1457,8 @@ app.put('/api/audits/:id/members/:userId', async (req, res) => {
     // Send realtime update for audit member status change
     sendAuditMemberUpdate(userId, {
       audit_session_id: parseInt(id),
-      status: status
+      status: status,
+      action: status  // 'active' | 'frozen' | 'removed' — lets frontend distinguish the action
     });
     res.json(data);
   } catch (err) {
@@ -1508,7 +1543,7 @@ app.post('/api/audits/:id/reset-import', enforceWritePermission, async (req, res
 });
 
 // Add manual item registration (Extra Found items)
-app.post('/api/audits/:id/items', enforceWritePermission, async (req, res) => {
+app.post('/api/audits/:id/items', enforceSessionAccess, enforceWritePermission, async (req, res) => {
   const { id } = req.params;
   const { item_name, batch_no, expiry_date, unit_mrp, unit_purchase_rate, system_qty, supplier, location, store_name, notes } = req.body;
   if (!item_name || !batch_no || !unit_purchase_rate) {
@@ -1541,7 +1576,7 @@ app.post('/api/audits/:id/items', enforceWritePermission, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────
 // AUDIT ITEMS & COLLABORATION ROUTES
 // ─────────────────────────────────────────────────────────────────
-app.get('/api/audits/:id/items', async (req, res) => {
+app.get('/api/audits/:id/items', enforceSessionAccess, async (req, res) => {
   const { id } = req.params;
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 30;
@@ -1964,11 +1999,11 @@ const handleCountUpdate = async (req, res) => {
   }
 };
 
-app.post('/api/items/:id/counts', enforceWritePermission, handleCountUpdate);
-app.put('/api/items/:id/count', enforceWritePermission, handleCountUpdate);
+app.post('/api/items/:id/counts', enforceSessionAccess, enforceWritePermission, handleCountUpdate);
+app.put('/api/items/:id/count', enforceSessionAccess, enforceWritePermission, handleCountUpdate);
 
 // Update Item (Admin/Developer only)
-app.put('/api/items/:id', enforceWritePermission, async (req, res) => {
+app.put('/api/items/:id', enforceSessionAccess, enforceWritePermission, async (req, res) => {
   const { id } = req.params;
   const userRole = req.headers['x-user-role'];
   if (!isPrivileged(userRole)) {
@@ -2019,7 +2054,7 @@ app.put('/api/items/:id', enforceWritePermission, async (req, res) => {
 });
 
 // Lock/Unlock Item Row
-app.post('/api/items/:id/lock', enforceWritePermission, async (req, res) => {
+app.post('/api/items/:id/lock', enforceSessionAccess, enforceWritePermission, async (req, res) => {
   const { id } = req.params;
   const { is_locked, user_name, reason } = req.body;
   const userRole = req.headers['x-user-role'];
@@ -2044,7 +2079,7 @@ app.post('/api/items/:id/lock', enforceWritePermission, async (req, res) => {
 });
 
 // Delete Item Row
-app.delete('/api/items/:id', enforceWritePermission, async (req, res) => {
+app.delete('/api/items/:id', enforceSessionAccess, enforceWritePermission, async (req, res) => {
   const { id } = req.params;
   const userRole = req.headers['x-user-role'];
   if (!isPrivileged(userRole)) return res.status(403).json({ error: 'Only administrators can delete items.' });
@@ -2064,7 +2099,7 @@ app.delete('/api/items/:id', enforceWritePermission, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────
 // ITEM HISTORY ROUTE
 // ─────────────────────────────────────────────────────────────────
-app.get('/api/items/:id/history', async (req, res) => {
+app.get('/api/items/:id/history', enforceSessionAccess, async (req, res) => {
   const { id } = req.params;
   try {
     const { data, error } = await supabase.from('audit_trail').select('*').eq('item_id', id).order('timestamp', { ascending: false });
@@ -2078,7 +2113,7 @@ app.get('/api/items/:id/history', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────
 // DASHBOARD ROUTE (enhanced with member performance)
 // ─────────────────────────────────────────────────────────────────
-app.get('/api/audits/:id/dashboard', async (req, res) => {
+app.get('/api/audits/:id/dashboard', enforceSessionAccess, async (req, res) => {
   const { id } = req.params;
   const requesterRole = req.headers['x-user-role'];
 
@@ -2106,7 +2141,7 @@ app.get('/api/audits/:id/dashboard', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────
 // REPORT EXPORT (Admin/Developer/CoFounder only)
 // ─────────────────────────────────────────────────────────────────
-app.get('/api/audits/:id/export', async (req, res) => {
+app.get('/api/audits/:id/export', enforceSessionAccess, async (req, res) => {
   const { id } = req.params;
   const requesterRole = req.headers['x-user-role'] || req.query.role;
   if (!isUpperTier(requesterRole)) {
@@ -2151,7 +2186,7 @@ app.get('/api/hospitals/:id/audits/export', async (req, res) => {
   }
 });
 
-app.get('/api/audits/:id/export/word', async (req, res) => {
+app.get('/api/audits/:id/export/word', enforceSessionAccess, async (req, res) => {
   const { id } = req.params;
   const requesterRole = req.headers['x-user-role'] || req.query.role;
   if (!isUpperTier(requesterRole)) {
@@ -2170,7 +2205,7 @@ app.get('/api/audits/:id/export/word', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────
 // AUDIT TRAIL ROUTE
 // ─────────────────────────────────────────────────────────────────
-app.get('/api/audits/:id/trail', async (req, res) => {
+app.get('/api/audits/:id/trail', enforceSessionAccess, async (req, res) => {
   const { id } = req.params;
   try {
     const { data: trail, error: tErr } = await supabase
