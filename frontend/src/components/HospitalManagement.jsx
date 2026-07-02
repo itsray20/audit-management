@@ -178,7 +178,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
 
   const handleZipDownload = async () => {
     if (!deleteTarget) return;
-    
+
     setZipStatus({
       active: true,
       total: 1,
@@ -186,76 +186,35 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
       currentName: 'Requesting server export...',
       error: null
     });
-    
+
     try {
-      zipCancelledRef.current = false;
-      for (let i = 0; i < associatedAudits.length; i++) {
-        if (zipCancelledRef.current) {
-          showToast('Backup download cancelled.', false);
-          setZipStatus({ active: false, total: 0, current: 0, currentName: '' });
-          return;
-        }
-
-        const audit = associatedAudits[i];
-        setZipStatus(prev => ({
-          ...prev,
-          current: i,
-          currentName: `Fetching report for "${audit.name}"...`
-        }));
-        
-        const url = getAbsoluteUrl(`/api/audits/${audit.id}/export?role=${currentUser.role}`);
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: { 'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/octet-stream' }
-        });
-        if (!response.ok) {
-          const errText = await response.text().catch(() => '');
-          throw new Error(`HTTP ${response.status}${errText ? ': ' + errText.slice(0, 120) : ': Failed to fetch audit report'}`);
-        }
-        const data = await response.arrayBuffer();
-
-        if (zipCancelledRef.current) {
-          showToast('Backup download cancelled.', false);
-          setZipStatus({ active: false, total: 0, current: 0, currentName: '', error: null });
-          return;
-        }
-        
-        const safeName = audit.name.replace(/[/\\?%*:|"<>\s]/g, '_');
-        zip.file(`${safeName}_session_${audit.id}.xlsx`, data);
+      const url = getAbsoluteUrl(`/api/hospitals/${deleteTarget.id}/audits/export?role=${currentUser.role}`);
+      const response = await fetch(url, { method: 'GET' });
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(`HTTP ${response.status}: ${errText.slice(0, 200)}`);
       }
-      
-      if (zipCancelledRef.current) return;
-
-      setZipStatus(prev => ({
-        ...prev,
-        current: associatedAudits.length,
-        currentName: '✓ Backup Complete!'
-      }));
-      
-      const content = await zip.generateAsync({ type: 'blob' });
-
-      if (zipCancelledRef.current) return;
-      
+      const blob = await response.blob();
+      const safeName = deleteTarget.name.replace(/[/\\?%*:|"<>\s]/g, '_');
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(content);
-      link.download = `${deleteTarget.name.replace(/[/\\?%*:|"<>\s]/g, '_')}-audits.zip`;
+      link.href = URL.createObjectURL(blob);
+      link.download = `${safeName}-audits.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
-      setZipStatus(prev => ({
-        ...prev,
-        currentName: '✓ Backup Complete!'
-      }));
+
+      setZipStatus({ active: false, total: 0, current: 0, currentName: '' });
+      showToast('Backup downloaded successfully!', true);
     } catch (err) {
       console.error(err);
       setZipStatus(prev => ({
         ...prev,
-        currentName: `Error: ${err.message || 'Zipping failed'}`,
+        currentName: `Error: ${err.message || 'Download failed'}`,
         error: err.message || 'Error occurred'
       }));
     }
   };
+
 
   /* ── Shared modal renderer ── */
   const renderModals = () => (
