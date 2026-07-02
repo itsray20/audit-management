@@ -277,9 +277,9 @@ export default function Login({ onLogin }) {
               "Baigan ke baataan nako karo!"
             </h4>
             <p className="text-sm mb-6 text-zinc-300 leading-relaxed font-medium font-mono">
-              Developer ka account hack karre? Itte kharab halaat ho gaye tumhare? 😭
+              Developer ke account mein taank-jhaank karre? Kaiku miyaan, kya irada hai? 🤔🚪
               <span className="block mt-3 text-xs text-zinc-400 font-normal border-t border-white/5 pt-3 font-sans">
-                Ab chup-chaap apna account kholo aur kaam pe lago ustaad, nai toh pure stock calculations ka biryani ban jata! 🍲📊
+                Ab chup-chaap apna account kholo aur kaam pe lago, nai toh pure stock calculations ka raita ban jata! 🍲📊
               </span>
             </p>
             <button 
