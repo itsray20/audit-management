@@ -413,6 +413,7 @@ export default function TeamManagement({ isDark, currentUser }) {
     } catch (err) {
       showMsg(err.response?.data?.error || 'Failed to re-hire.', 'error');
     }
+    setConfirmAction(null);
   };
 
   const activeUsers = allUsers.filter(u => u.status !== 'removed');
@@ -994,7 +995,7 @@ export default function TeamManagement({ isDark, currentUser }) {
               {showPrevEmployed && (
                 <div className="mt-4 space-y-2">
                   {removedUsers.map(u => (
-                    <PreviouslyEmployedCard key={u.id} user={u} onRehire={handleRehire} isDark={isDark} />
+                    <PreviouslyEmployedCard key={u.id} user={u} onRehire={(user) => setConfirmAction({ user, action: 'rehire' })} isDark={isDark} />
                   ))}
                 </div>
               )}
@@ -1271,27 +1272,37 @@ export default function TeamManagement({ isDark, currentUser }) {
               boxShadow: '0 24px 64px rgba(0,0,0,0.25)' 
             }}
           >
-            <div className="h-14 w-14 rounded-2xl flex items-center justify-center mx-auto mb-3" style={{ background: confirmAction.action === 'remove' ? 'rgba(255,59,48,0.1)' : 'rgba(255,149,0,0.1)', color: confirmAction.action === 'remove' ? '#FF3B30' : '#FF9500' }}>
+            <div className="h-14 w-14 rounded-2xl flex items-center justify-center mx-auto mb-3" style={{ background: confirmAction.action === 'remove' ? 'rgba(255,59,48,0.1)' : confirmAction.action === 'rehire' ? 'rgba(52,199,89,0.1)' : 'rgba(255,149,0,0.1)', color: confirmAction.action === 'remove' ? '#FF3B30' : confirmAction.action === 'rehire' ? '#34C759' : '#FF9500' }}>
               <AlertTriangle className="h-7 w-7" />
             </div>
             <h3 className="font-bold text-base mb-1" style={{ color: 'var(--text-primary)' }}>
-              {confirmAction.action === 'remove' ? 'Remove Member' : confirmAction.action === 'freeze' ? 'Freeze Member' : 'Unfreeze Member'}
+              {confirmAction.action === 'remove' ? 'Remove Member' : confirmAction.action === 'freeze' ? 'Freeze Member' : confirmAction.action === 'rehire' ? 'Re-hire Member' : 'Unfreeze Member'}
             </h3>
             <p className="text-sm mb-5" style={{ color: 'var(--text-tertiary)' }}>
               {confirmAction.action === 'remove'
                 ? `Remove ${confirmAction.user.name} from the team? They'll be moved to Previously Employed.`
                 : confirmAction.action === 'freeze'
                   ? `Freeze ${confirmAction.user.name}? They can still log in but will have read-only access.`
-                  : `Unfreeze ${confirmAction.user.name}? They'll regain full access.`}
+                  : confirmAction.action === 'rehire'
+                    ? `Are you sure you want to re-hire ${confirmAction.user.name}? They will regain full active access.`
+                    : `Unfreeze ${confirmAction.user.name}? They'll regain full access.`}
             </p>
             <div className="flex gap-2">
               <button onClick={() => setConfirmAction(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer" style={{ background: 'var(--glass-bg-light)', border: '1px solid var(--glass-border-dim)', color: 'var(--text-secondary)' }}>Cancel</button>
               <button
-                onClick={() => confirmAction.action === 'remove' ? handleRemove(confirmAction.user) : handleFreeze(confirmAction.user)}
+                onClick={() => {
+                  if (confirmAction.action === 'remove') {
+                    handleRemove(confirmAction.user);
+                  } else if (confirmAction.action === 'rehire') {
+                    handleRehire(confirmAction.user);
+                  } else {
+                    handleFreeze(confirmAction.user);
+                  }
+                }}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
                 style={{ background: confirmAction.action === 'remove' ? 'linear-gradient(180deg,#f87171,#dc2626)' : confirmAction.action === 'freeze' ? 'linear-gradient(180deg,#FFB347,#FF9500)' : 'linear-gradient(180deg,#4CD964,#34C759)', color: '#fff' }}
               >
-                {confirmAction.action === 'remove' ? 'Remove' : confirmAction.action === 'freeze' ? 'Freeze' : 'Unfreeze'}
+                {confirmAction.action === 'remove' ? 'Remove' : confirmAction.action === 'freeze' ? 'Freeze' : confirmAction.action === 'rehire' ? 'Re-hire' : 'Unfreeze'}
               </button>
             </div>
           </div>
