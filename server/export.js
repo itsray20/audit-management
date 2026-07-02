@@ -178,7 +178,7 @@ const generateExcelBuffer = async (sessionId) => {
   const zebraColor = 'FFF9FAFB';
   const totalRowColor = 'FFEBF2FA';
 
-  const applyBaseFormatting = (ws, isSummary = false) => {
+  const applyBaseFormatting = (ws, isSummary = false, isDetail = false) => {
     ws.views = [{ showGridLines: true }];
     const headerRow = ws.getRow(1);
     headerRow.height = 28;
@@ -191,6 +191,27 @@ const generateExcelBuffer = async (sessionId) => {
     if (!isSummary) {
       ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 1, activeCell: 'A2', showGridLines: true }];
     }
+
+    if (isDetail) {
+      const lastRow = ws.lastRow;
+      if (lastRow) {
+        lastRow.height = 24;
+        lastRow.eachCell((cell, colNumber) => {
+          const colHeader = String(ws.getRow(1).getCell(colNumber).value || '');
+          let horiz = 'center';
+          if (colHeader === 'Item Name' || colHeader === 'Audit Report') horiz = 'left';
+          else if (['Pruchase rate','Selling rate','Difference  value','Batch Available Quantity','Total','Difference','Value'].includes(colHeader)) horiz = 'right';
+          cell.alignment = { vertical: 'middle', horizontal: horiz };
+          cell.font = { name: fontName, size: 9.5, bold: true, color: { argb: 'FF111827' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: totalRowColor } };
+          cell.border = { top: { style: 'thin', color: { argb: 'FF9CA3AF' } }, bottom: { style: 'double', color: { argb: 'FF111827' } }, left: { style: 'thin', color: { argb: 'FFE5E7EB' } }, right: { style: 'thin', color: { argb: 'FFE5E7EB' } } };
+          if (['Pruchase rate','Selling rate','Difference  value'].includes(colHeader)) cell.numFmt = '#,##0.00';
+          else if (['Batch Available Quantity','Total','Difference'].includes(colHeader)) cell.numFmt = '#,##0';
+        });
+      }
+      return;
+    }
+
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
       const isEven = rowNumber % 2 === 0;
@@ -253,72 +274,67 @@ const generateExcelBuffer = async (sessionId) => {
     difference: item.difference, differenceValue: item.differenceValue
   });
 
-  const PAGE_SIZE = 1000;
-  let pageNum = 0;
+  // 1. Fetch all items (Query 1)
+  const { data: allItems, error: itemsErr } = await supabase.rpc('exec_raw_sql', {
+    query_text: 'SELECT * FROM items WHERE audit_session_id = $1::bigint ORDER BY id ASC',
+    query_params: [String(sessionId)]
+  });
+  if (itemsErr) throw itemsErr;
 
-  while (true) {
-    // Load one page of items
-    const { data: pageItems, error: pageErr } = await supabase
-      .from('items')
-      .select('*')
-      .eq('audit_session_id', sessionId)
-      .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1)
-      .order('id', { ascending: true });
+  // 2. Fetch all counts (Query 2)
+  const { data: allCounts, error: countsErr } = await supabase.rpc('exec_raw_sql', {
+    query_text: `
+      SELECT ac.* 
+      FROM auditor_counts ac
+      JOIN items i ON i.id = ac.item_id
+      WHERE i.audit_session_id = $1::bigint
+    `,
+    query_params: [String(sessionId)]
+  });
+  if (countsErr) throw countsErr;
 
-    if (pageErr) throw pageErr;
-    if (!pageItems || pageItems.length === 0) break;
+  const countsByItem = {};
+  (allCounts || []).forEach(c => {
+    if (!countsByItem[c.item_id]) countsByItem[c.item_id] = [];
+    countsByItem[c.item_id].push(c);
+  });
 
-    // Load counts only for this page's items
-    const pageIds = pageItems.map(i => i.id);
-    const pageCounts = await fetchCountsInChunks(pageIds);
-    const countsByItem = {};
-    pageCounts.forEach(c => {
-      if (!countsByItem[c.item_id]) countsByItem[c.item_id] = [];
-      countsByItem[c.item_id].push(c);
+  // Process all items in a single pass
+  for (const item of (allItems || [])) {
+    const itemCounts = countsByItem[item.id] || [];
+    const p = calculateItemValues(item, itemCounts, sessionDate, ALLOWED_AUDITORS);
+
+    // Build and add detail row immediately — no intermediate array
+    const row = {
+      itemName: p.item_name, batch: p.batch_no, expiry: p.expiry_date || '',
+      purchaseRate: p.unit_purchase_rate, sellingRate: p.unit_mrp, availQty: p.system_qty,
+    };
+    const countsByAuditor = {};
+    itemCounts.forEach(c => {
+      countsByAuditor[String(c.auditor_name)] = Number(c.physical_count);
     });
+    columns.forEach(col => {
+      const val = countsByAuditor[col.id];
+      row[`col_${col.id}`] = (val !== undefined && val !== null) ? val : '';
+    });
+    row.total = p.totalPhysical;
+    row.difference = p.difference;
+    row.differenceValue = p.differenceValue;
+    wsStd.addRow(row);
 
-    // Process each item and write row directly to sheet
-    for (const item of pageItems) {
-      const itemCounts = countsByItem[item.id] || [];
-      const p = calculateItemValues(item, itemCounts, sessionDate, ALLOWED_AUDITORS);
-
-      // Build and add detail row immediately — no intermediate array
-      const row = {
-        itemName: p.item_name, batch: p.batch_no, expiry: p.expiry_date || '',
-        purchaseRate: p.unit_purchase_rate, sellingRate: p.unit_mrp, availQty: p.system_qty,
-      };
-      columns.forEach(col => {
-        const match = itemCounts.find(c => String(c.auditor_name) === String(col.id));
-        row[`col_${col.id}`] = match ? Number(match.physical_count) : '';
-      });
-      row.total = p.totalPhysical;
-      row.difference = p.difference;
-      row.differenceValue = p.differenceValue;
-      wsStd.addRow(row);
-
-      // Accumulate summary numbers
-      totalStockVal += (p.system_qty * p.unit_purchase_rate);
-      sumSysQty     += (Number(p.system_qty) || 0);
-      sumPhysical   += (p.totalPhysical || 0);
-      sumDifference += (p.difference || 0);
-      sumDiffVal    += (p.differenceValue || 0);
-      if (p.category === 'Excess')       { excessVal  += p.differenceValue; excessRows.push(buildSubRow(p)); }
-      if (p.category === 'Shortage')     { shortageVal += p.differenceValue; shortageRows.push(buildSubRow(p)); }
-      if (p.category === 'Extra Found')  { extraFoundVal += (p.totalPhysical * p.unit_purchase_rate); extraFoundRows.push(buildSubRow(p)); }
-      if (p.category === 'Expired Stock'){ expiredVal  += (p.totalPhysical * p.unit_purchase_rate); expiredRows.push(buildSubRow(p)); }
-      if (p.category === 'Other')        { otVal       += p.differenceValue; otRows.push(buildSubRow(p)); }
-      if (p.expiryStatus === 'EXPIRED')  { totalSystemExpiryVal   += ((p.system_qty || 0) * (p.unit_purchase_rate || 0)); totalPhysicalExpiryVal += ((p.totalPhysical || 0) * (p.unit_purchase_rate || 0)); }
-      if (p.isCounted && (p.totalPhysical || 0) === (p.system_qty || 0)) totalPerfectMatchVal += ((p.totalPhysical || 0) * (p.unit_purchase_rate || 0));
-    }
-
-    const fetchedCount = pageItems.length; // save BEFORE clearing
-
-    // Help GC release the large page arrays
-    pageItems.length = 0;
-    pageCounts.length = 0;
-
-    if (fetchedCount < PAGE_SIZE) break; // last page — stop
-    pageNum++;
+    // Accumulate summary numbers
+    totalStockVal += (p.system_qty * p.unit_purchase_rate);
+    sumSysQty     += (Number(p.system_qty) || 0);
+    sumPhysical   += (p.totalPhysical || 0);
+    sumDifference += (p.difference || 0);
+    sumDiffVal    += (p.differenceValue || 0);
+    if (p.category === 'Excess')       { excessVal  += p.differenceValue; excessRows.push(buildSubRow(p)); }
+    if (p.category === 'Shortage')     { shortageVal += p.differenceValue; shortageRows.push(buildSubRow(p)); }
+    if (p.category === 'Extra Found')  { extraFoundVal += (p.totalPhysical * p.unit_purchase_rate); extraFoundRows.push(buildSubRow(p)); }
+    if (p.category === 'Expired Stock'){ expiredVal  += (p.totalPhysical * p.unit_purchase_rate); expiredRows.push(buildSubRow(p)); }
+    if (p.category === 'Other')        { otVal       += p.differenceValue; otRows.push(buildSubRow(p)); }
+    if (p.expiryStatus === 'EXPIRED')  { totalSystemExpiryVal   += ((p.system_qty || 0) * (p.unit_purchase_rate || 0)); totalPhysicalExpiryVal += ((p.totalPhysical || 0) * (p.unit_purchase_rate || 0)); }
+    if (p.isCounted && (p.totalPhysical || 0) === (p.system_qty || 0)) totalPerfectMatchVal += ((p.totalPhysical || 0) * (p.unit_purchase_rate || 0));
   }
 
   // Add totals footer to detail sheet
@@ -330,7 +346,7 @@ const generateExcelBuffer = async (sessionId) => {
   totalFooter.difference = sumDifference;
   totalFooter.differenceValue = excessVal + shortageVal + extraFoundVal + otVal;
   wsStd.addRow(totalFooter);
-  applyBaseFormatting(wsStd, false);
+  applyBaseFormatting(wsStd, false, true);
 
   // 5. Summary sheet (now we have all totals)
   const grossShortage = shortageVal;
