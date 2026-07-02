@@ -384,7 +384,7 @@ export default function App() {
         if (data.status === 'frozen' || data.status === 'removed') {
           alert(data.status === 'frozen'
             ? 'Your account has been frozen. Please contact your administrator.'
-            : 'Your account has been removed. Please contact your administrator.');
+            : 'Your account is no longer active. Please contact your administrator for assistance.');
           handleLogout();
           return;
         }

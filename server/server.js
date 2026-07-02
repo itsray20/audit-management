@@ -410,7 +410,7 @@ app.post('/api/login', async (req, res) => {
 
     // Check status first
     if (user.status === 'removed') {
-      return res.status(403).json({ error: 'Your account has been removed. Please contact your administrator.' });
+      return res.status(403).json({ error: 'Your account is no longer active. Please contact your administrator for assistance.' });
     }
     if (user.status === 'frozen') {
       return res.status(403).json({ error: 'Your account has been frozen. Please contact your administrator.' });
