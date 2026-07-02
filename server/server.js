@@ -26,26 +26,39 @@ app.use(express.json());
 const userActivityMap = new Map();
 
 // SSE Client Registry for real-time updates
-const sseClients = new Map(); // userId (string) -> Set of Express Response objects
+const sseClients = new Set(); // Set of client records: { userId, sessionId, role, res }
 
-// Broadcast helper for SSE
-const sendRealtimeUpdate = (userId, eventType, data) => {
-  const clients = sseClients.get(String(userId));
-  if (clients && clients.size > 0) {
-    const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
-    for (const client of clients) {
-      try {
-        client.write(payload);
-      } catch (err) {
-        console.error(`Failed to write SSE to user ${userId}:`, err.message);
-      }
+// Broadcast helpers for SSE
+const sendUserUpdate = (userId, data) => {
+  const payload = `event: user_update\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    if (client.userId === String(userId)) {
+      try { client.res.write(payload); } catch (err) {}
+    }
+  }
+};
+
+const sendAuditMemberUpdate = (userId, data) => {
+  const payload = `event: audit_member_update\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    if (client.userId === String(userId)) {
+      try { client.res.write(payload); } catch (err) {}
+    }
+  }
+};
+
+const sendCountUpdate = (sessionId, data) => {
+  const payload = `event: count_update\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    if (client.sessionId === String(sessionId)) {
+      try { client.res.write(payload); } catch (err) {}
     }
   }
 };
 
 // SSE streaming endpoint
 app.get('/api/realtime/stream', async (req, res) => {
-  const userId = req.query.userId;
+  const { userId, sessionId } = req.query;
   if (!userId) {
     return res.status(400).send('userId is required');
   }
@@ -53,7 +66,7 @@ app.get('/api/realtime/stream', async (req, res) => {
   try {
     const { data: user, error } = await supabase
       .from('users')
-      .select('status')
+      .select('status, role')
       .eq('id', userId)
       .single();
 
@@ -75,6 +88,15 @@ app.get('/api/realtime/stream', async (req, res) => {
       return res.end();
     }
 
+    const clientRecord = {
+      userId: String(userId),
+      sessionId: sessionId ? String(sessionId) : null,
+      role: user.role,
+      res
+    };
+
+    sseClients.add(clientRecord);
+
     // Keep-alive ping interval
     const pingInterval = setInterval(() => {
       try {
@@ -84,20 +106,9 @@ app.get('/api/realtime/stream', async (req, res) => {
       }
     }, 30000);
 
-    if (!sseClients.has(String(userId))) {
-      sseClients.set(String(userId), new Set());
-    }
-    sseClients.get(String(userId)).add(res);
-
     req.on('close', () => {
       clearInterval(pingInterval);
-      const clients = sseClients.get(String(userId));
-      if (clients) {
-        clients.delete(res);
-        if (clients.size === 0) {
-          sseClients.delete(String(userId));
-        }
-      }
+      sseClients.delete(clientRecord);
     });
   } catch (err) {
     res.status(500).send(err.message);
@@ -618,7 +629,7 @@ app.put('/api/users/:id/status', async (req, res) => {
       throw error;
     }
     // Send realtime update for user status
-    sendRealtimeUpdate(id, 'user_update', { status });
+    sendUserUpdate(id, { status });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -741,7 +752,7 @@ app.put('/api/users/:id', async (req, res) => {
       }
     }
     // Send realtime update for user role/name
-    sendRealtimeUpdate(id, 'user_update', {
+    sendUserUpdate(id, {
       role: newRole,
       name: newName
     });
@@ -795,7 +806,7 @@ app.delete('/api/users/:id', async (req, res) => {
     const { error } = await supabase.from('users').delete().eq('id', id);
     if (error) throw error;
     // Send realtime update for user deleted/removed
-    sendRealtimeUpdate(id, 'user_update', { status: 'removed' });
+    sendUserUpdate(id, { status: 'removed' });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1406,7 +1417,7 @@ app.put('/api/audits/:id/members/:userId', async (req, res) => {
       .single();
     if (error) throw error;
     // Send realtime update for audit member status change
-    sendRealtimeUpdate(userId, 'audit_member_update', {
+    sendAuditMemberUpdate(userId, {
       audit_session_id: parseInt(id),
       status: status
     });
@@ -1934,6 +1945,14 @@ const handleCountUpdate = async (req, res) => {
         }]);
       }
     }
+
+    // Send realtime update for count change to other auditors/admins in this session
+    sendCountUpdate(item.audit_session_id, {
+      item_id: parseInt(id),
+      auditor_name,
+      physical_count: isDelete ? null : parseInt(physical_count),
+      expiry_check: expiry_check ? true : false
+    });
 
     res.json({ success: true });
   } catch (err) {

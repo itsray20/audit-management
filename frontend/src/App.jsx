@@ -281,11 +281,98 @@ export default function App() {
     }
   }, [activeSession, currentUser]);
 
+  const updateLocalItemCount = useCallback((itemId, auditorName, physicalCount, expiryCheck) => {
+    const memberIdSet = new Set((auditMembers || []).map(m => String(m.user_id)));
+    const isAllowed = (name) => memberIdSet.has(String(name)) || [
+      'Physical Quantity', 'Physical Quantity_1', 'Physical Quantity_2',
+      'Extra Count', 'Expired Count'
+    ].includes(String(name));
+
+    setItems(prev => prev.map(it => {
+      if (it.id !== itemId) return it;
+
+      const existingCounts = it.auditor_counts || [];
+      const alreadyExists = existingCounts.some(c => String(c.auditor_name) === String(auditorName));
+
+      let newCounts;
+      if (physicalCount === null || physicalCount === undefined) {
+        newCounts = existingCounts.filter(c => String(c.auditor_name) !== String(auditorName));
+      } else {
+        newCounts = alreadyExists
+          ? existingCounts.map(c =>
+            String(c.auditor_name) === String(auditorName)
+              ? { ...c, physical_count: physicalCount, expiry_check: expiryCheck }
+              : c
+          )
+          : [...existingCounts, { auditor_name: auditorName, physical_count: physicalCount, expiry_check: expiryCheck }];
+      }
+
+      const totalPhysical = newCounts
+        .filter(c => isAllowed(c.auditor_name))
+        .reduce((sum, c) => sum + (c.physical_count != null ? Number(c.physical_count) : 0), 0)
+        + Number(it.manual_add || 0)
+        + Number(it.manual_recheck || 0);
+
+      const systemQty = Number(it.system_qty || 0);
+      const isCounted = newCounts.some(c => isAllowed(c.auditor_name) && c.physical_count != null);
+      const difference = isCounted ? (totalPhysical - systemQty) : 0;
+      const differenceValue = difference * Number(it.unit_purchase_rate || 0);
+
+      return {
+        ...it,
+        auditor_counts: newCounts,
+        totalPhysical,
+        difference,
+        differenceValue
+      };
+    }));
+
+    setSelectedItem(prev => {
+      if (prev && prev.id === itemId) {
+        const existingCounts = prev.auditor_counts || [];
+        const alreadyExists = existingCounts.some(c => String(c.auditor_name) === String(auditorName));
+
+        let newCounts;
+        if (physicalCount === null || physicalCount === undefined) {
+          newCounts = existingCounts.filter(c => String(c.auditor_name) !== String(auditorName));
+        } else {
+          newCounts = alreadyExists
+            ? existingCounts.map(c =>
+              String(c.auditor_name) === String(auditorName)
+                ? { ...c, physical_count: physicalCount, expiry_check: expiryCheck }
+                : c
+            )
+            : [...existingCounts, { auditor_name: auditorName, physical_count: physicalCount, expiry_check: expiryCheck }];
+        }
+
+        const totalPhysical = newCounts
+          .filter(c => isAllowed(c.auditor_name))
+          .reduce((sum, c) => sum + (c.physical_count != null ? Number(c.physical_count) : 0), 0)
+          + Number(prev.manual_add || 0)
+          + Number(prev.manual_recheck || 0);
+
+        const systemQty = Number(prev.system_qty || 0);
+        const isCounted = newCounts.some(c => isAllowed(c.auditor_name) && c.physical_count != null);
+        const difference = isCounted ? (totalPhysical - systemQty) : 0;
+        const differenceValue = difference * Number(prev.unit_purchase_rate || 0);
+
+        return {
+          ...prev,
+          auditor_counts: newCounts,
+          totalPhysical,
+          difference,
+          differenceValue
+        };
+      }
+      return prev;
+    });
+  }, [auditMembers]);
+
   // Real-time updates via Server-Sent Events (SSE)
   useEffect(() => {
     if (!currentUser?.id) return;
 
-    const sseUrl = getAbsoluteUrl(`/api/realtime/stream?userId=${currentUser.id}`);
+    const sseUrl = getAbsoluteUrl(`/api/realtime/stream?userId=${currentUser.id}&sessionId=${activeSession?.id || ''}`);
     console.log('Connecting to real-time update stream:', sseUrl);
     const eventSource = new EventSource(sseUrl);
 
@@ -336,6 +423,16 @@ export default function App() {
       }
     });
 
+    eventSource.addEventListener('count_update', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        console.log('SSE: Received count update:', data);
+        updateLocalItemCount(data.item_id, data.auditor_name, data.physical_count, data.expiry_check);
+      } catch (err) {
+        console.error('Error processing count_update event:', err);
+      }
+    });
+
     eventSource.onerror = (err) => {
       console.error('SSE: Connection error or closed, retrying...', err);
     };
@@ -344,7 +441,8 @@ export default function App() {
       console.log('SSE: Closing connection.');
       eventSource.close();
     };
-  }, [currentUser?.id, activeSession?.id]);
+  }, [currentUser?.id, activeSession?.id, updateLocalItemCount]);
+
 
   useEffect(() => {
     if (activeSession && currentUser) {
