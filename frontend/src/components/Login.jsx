@@ -226,7 +226,7 @@ export default function Login({ onLogin }) {
               border: '1px solid rgba(255,255,255,0.08)', 
               boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
               backdropFilter: 'blur(20px)',
-              maxWidth: '300px',
+              maxWidth: '350px',
               animation: 'bait-fade-scale 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both'
             }}
           >
