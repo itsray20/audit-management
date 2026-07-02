@@ -438,11 +438,16 @@ export default function App() {
           return;
         }
 
-        if (data.action === 'added') {
-          // This user was added to a session — give instant access
-          fetchSessions();
-          fetchAuditMembers();
-          setSystemModal({ type: 'added', sessionId: data.audit_session_id });
+        if (data.action === 'added' || data.action === 'active') {
+          // This user was added/rejoined to a session — give instant access & open it
+          const isCurrentlyActive = activeSession && String(activeSession.id) === String(data.audit_session_id);
+          if (!isCurrentlyActive) {
+            fetchSessions(data.audit_session_id);
+            fetchAuditMembers();
+            setSystemModal({ type: 'added', sessionId: data.audit_session_id });
+          } else {
+            fetchAuditMembers();
+          }
           return;
         }
 
@@ -558,11 +563,22 @@ export default function App() {
     setAssignableUsers([]);
   };
 
-  const fetchSessions = async () => {
+  const fetchSessions = async (autoSelectSessionId = null) => {
     setIsLoadingSessions(true);
     try {
       const res = await axios.get('/api/audits');
       setSessions(res.data);
+
+      if (autoSelectSessionId) {
+        const matched = res.data.find(s => String(s.id) === String(autoSelectSessionId));
+        if (matched) {
+          setActiveSession(matched);
+          localStorage.setItem('activeSessionId', String(matched.id));
+          localStorage.setItem('activeSession', JSON.stringify(matched));
+          setActiveTab(isEmployee(currentUser?.role) ? 'sheet' : 'dashboard');
+          return;
+        }
+      }
 
       const savedSessionId = localStorage.getItem('activeSessionId');
       const matched = res.data.find(s => String(s.id) === String(savedSessionId));
