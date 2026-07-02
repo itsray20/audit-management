@@ -31,14 +31,14 @@ export default function Login({ onLogin }) {
   };
 
   const users = [
-    { name: 'Srikant',   username: 'srikant',   role: 'Admin',      pw: 'srikant123' },
-    { name: 'Shreeyash', username: 'shreeyash', role: 'Admin',      pw: 'user523' },
+    { name: 'Srikant',   username: 'srikant',   role: 'Admin',      pw: 'Audit@Srk1' },
+    { name: 'Shreeyash', username: 'shreeyash', role: 'Admin',      pw: 'Audit@Shy5' },
     { name: 'Rohan',     username: 'rohan',     role: 'Developer',  pw: 'rohan123' },
-    { name: 'Sathya',    username: 'sathya',    role: 'CoFounder',  pw: 'user223' },
-    { name: 'Naveen',    username: 'naveen',    role: 'CoFounder',  pw: 'user423' },
-    { name: 'Santosh',   username: 'santosh',   role: 'CoFounder',  pw: 'user323' },
-    { name: 'Amit',      username: 'amit',      role: 'Employee',   pw: 'Amit' },
-    { name: 'Priya',     username: 'priya',     role: 'Employee',   pw: 'Priya' },
+    { name: 'Sathya',    username: 'sathya',    role: 'CoFounder',  pw: 'Audit@Sty2' },
+    { name: 'Naveen',    username: 'naveen',    role: 'CoFounder',  pw: 'Audit@Nav4' },
+    { name: 'Santosh',   username: 'santosh',   role: 'CoFounder',  pw: 'Audit@San3' },
+    { name: 'Amit',      username: 'amit',      role: 'Employee',   pw: 'Audit@Amt6' },
+    { name: 'Priya',     username: 'priya',     role: 'Employee',   pw: 'Audit@Pry7' },
   ];
 
   return (
