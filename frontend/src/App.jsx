@@ -167,6 +167,7 @@ export default function App() {
   });
   
   const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [systemModal, setSystemModal] = useState(null); // { type: 'frozen'|'removed'|'added', sessionId? }
   const [sessionValidationErrors, setSessionValidationErrors] = useState([]);
   const [showReopenModal, setShowReopenModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -382,10 +383,8 @@ export default function App() {
         console.log('SSE: Received user update:', data);
 
         if (data.status === 'frozen' || data.status === 'removed') {
-          alert(data.status === 'frozen'
-            ? 'Your account has been frozen. Please contact your administrator.'
-            : 'Your account is no longer active. Please contact your administrator for assistance.');
-          handleLogout();
+          setSystemModal({ type: data.status });
+          setTimeout(() => handleLogout(), 4000);
           return;
         }
 
@@ -417,6 +416,12 @@ export default function App() {
         console.log('SSE: Received audit member update:', data);
         if (activeSession && String(data.audit_session_id) === String(activeSession.id)) {
           fetchAuditMembers();
+        }
+        // If this user was just added to a session they weren't viewing, reload sessions
+        if (data.action === 'added') {
+          fetchSessions();
+          fetchAuditMembers();
+          setSystemModal({ type: 'added', sessionId: data.audit_session_id });
         }
       } catch (err) {
         console.error('Error processing audit_member_update event:', err);
@@ -3164,6 +3169,102 @@ export default function App() {
           </div>
         </div>,
         document.body
+      )}
+
+      {/* ── System Notification Modal (frozen / removed / added) ── */}
+      {systemModal && ReactDOM.createPortal(
+        <div
+          style={{
+            position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 99999, padding: '16px',
+            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)'
+          }}
+        >
+          <div
+            style={{
+              width: '100%', maxWidth: '420px',
+              animation: 'dropdown-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+              background: isDark ? '#1c1c1e' : '#ffffff',
+              border: systemModal.type === 'added'
+                ? '1px solid rgba(52,199,89,0.3)'
+                : systemModal.type === 'frozen'
+                  ? '1px solid rgba(255,149,0,0.3)'
+                  : '1px solid rgba(255,59,48,0.3)',
+              boxShadow: '0 40px 80px rgba(0,0,0,0.4)',
+              borderRadius: '24px', padding: '36px 32px 32px', textAlign: 'center'
+            }}
+          >
+            {/* Icon */}
+            <div style={{
+              width: 72, height: 72, borderRadius: '22px', margin: '0 auto 24px', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', fontSize: 32,
+              background: systemModal.type === 'added'
+                ? 'rgba(52,199,89,0.12)'
+                : systemModal.type === 'frozen'
+                  ? 'rgba(255,149,0,0.12)'
+                  : 'rgba(255,59,48,0.12)',
+              border: systemModal.type === 'added'
+                ? '1px solid rgba(52,199,89,0.25)'
+                : systemModal.type === 'frozen'
+                  ? '1px solid rgba(255,149,0,0.25)'
+                  : '1px solid rgba(255,59,48,0.25)',
+            }}>
+              {systemModal.type === 'added' ? '✅' : systemModal.type === 'frozen' ? '🔒' : '🚫'}
+            </div>
+
+            {/* Title */}
+            <h2 style={{
+              fontSize: 20, fontWeight: 800, marginBottom: 10, letterSpacing: '-0.03em',
+              color: systemModal.type === 'added'
+                ? 'rgb(52,199,89)'
+                : systemModal.type === 'frozen'
+                  ? 'rgb(255,149,0)'
+                  : 'rgb(255,59,48)'
+            }}>
+              {systemModal.type === 'added'
+                ? 'You\'ve Been Added to the Audit! 🎉'
+                : systemModal.type === 'frozen'
+                  ? 'Account Frozen'
+                  : 'Account Deactivated'}
+            </h2>
+
+            {/* Message */}
+            <p style={{ fontSize: 14, color: isDark ? '#a1a1aa' : '#52525b', lineHeight: 1.6, marginBottom: 28 }}>
+              {systemModal.type === 'added'
+                ? 'An administrator has added you to this audit session. You now have full access to the Audit Sheet and can start auditing immediately.'
+                : systemModal.type === 'frozen'
+                  ? 'Your account has been temporarily frozen by an administrator. You will be logged out now. Please contact your administrator for further assistance.'
+                  : 'Your account has been deactivated by an administrator. You will be logged out now. Please contact your administrator for further assistance.'}
+            </p>
+
+            {/* CTA */}
+            <button
+              onClick={() => setSystemModal(null)}
+              style={{
+                width: '100%', padding: '14px 16px', fontSize: 14, fontWeight: 700,
+                borderRadius: '14px', border: 'none', cursor: 'pointer', color: '#fff',
+                background: systemModal.type === 'added'
+                  ? 'linear-gradient(135deg, #34C759, #30D158)'
+                  : systemModal.type === 'frozen'
+                    ? 'linear-gradient(135deg, #FF9500, #FF6000)'
+                    : 'linear-gradient(135deg, #FF3B30, #FF2D20)',
+                boxShadow: systemModal.type === 'added'
+                  ? '0 4px 16px rgba(52,199,89,0.35)'
+                  : '0 4px 16px rgba(255,59,48,0.35)',
+              }}
+            >
+              {systemModal.type === 'added' ? 'Start Auditing →' : 'Understood'}
+            </button>
+
+            {/* Auto-dismiss note for frozen/removed */}
+            {systemModal.type !== 'added' && (
+              <p style={{ fontSize: 11, color: isDark ? '#52525b' : '#a1a1aa', marginTop: 12 }}>
+                You will be logged out automatically in a few seconds.
+              </p>
+            )}
+          </div>
+        </div>,
+        document.fullscreenElement || document.body
       )}
     </div>
   );

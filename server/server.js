@@ -1383,6 +1383,14 @@ app.post('/api/audits/:id/members', async (req, res) => {
       .select()
       .single();
     if (error) throw error;
+
+    // Notify the newly added member in real-time so they get instant access
+    sendAuditMemberUpdate(user_id, {
+      audit_session_id: parseInt(id),
+      status: 'active',
+      action: 'added'
+    });
+
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
