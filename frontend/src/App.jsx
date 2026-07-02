@@ -161,6 +161,7 @@ export default function App() {
   });
   
   const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [sessionValidationErrors, setSessionValidationErrors] = useState([]);
   const [showReopenModal, setShowReopenModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showRemoveImportModal, setShowRemoveImportModal] = useState(false);
@@ -553,16 +554,19 @@ export default function App() {
 
   const handleCreateSession = async (e) => {
     e.preventDefault();
+    const errors = [];
     if (!newSessionName.trim()) {
-      alert('Session name is required.');
-      return;
+      errors.push('Session name is required.');
     }
     if (!newSessionHospital) {
-      alert('Target hospital is required.');
-      return;
+      errors.push('Target hospital facility must be selected.');
     }
     if (!newSessionMembers || newSessionMembers.length === 0) {
-      alert('Please select at least one auditor for this session.');
+      errors.push('At least one additional auditing member must be allocated.');
+    }
+
+    if (errors.length > 0) {
+      setSessionValidationErrors(errors);
       return;
     }
     try {
@@ -1359,7 +1363,6 @@ export default function App() {
                       <FileText className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500 z-10" />
                       <input
                         type="text"
-                        required
                         placeholder="e.g. Kukatpally June 2026 Audit Sweep"
                         value={newSessionName}
                         onChange={(e) => setNewSessionName(e.target.value)}
@@ -2756,6 +2759,32 @@ export default function App() {
                 Complete Audit
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Validation Alert Modal */}
+      {sessionValidationErrors.length > 0 && ReactDOM.createPortal(
+        <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }} onClick={() => setSessionValidationErrors([])}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '420px', animation: 'dropdown-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)', background: isDark ? '#1c1c1e' : '#ffffff', border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)', boxShadow: '0 32px 80px rgba(0,0,0,0.35)', borderRadius: '22px', padding: '32px 28px 28px', textAlign: 'center' }}>
+            <div style={{ width: 60, height: 60, borderRadius: '18px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: 'rgb(239,68,68)' }}>
+              <AlertTriangle style={{ width: 28, height: 28 }} />
+            </div>
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 12, color: isDark ? '#f4f4f5' : '#111827', letterSpacing: '-0.02em' }}>Incomplete Audit Parameters</h3>
+            <p style={{ fontSize: 13, color: isDark ? '#a1a1aa' : '#6b7280', marginBottom: 20, lineHeight: 1.5 }}>
+              Please complete the following actions before launching the session:
+            </p>
+            <div style={{ background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)', borderRadius: '14px', padding: '16px', textAlign: 'left', marginBottom: 24 }}>
+              <ul style={{ margin: 0, paddingLeft: '20px', listStyleType: 'disc', fontSize: '12px', color: isDark ? '#ffccd5' : '#ef4444', display: 'flex', flexDirection: 'column', gap: '8px', fontWeight: 600 }}>
+                {sessionValidationErrors.map((err, idx) => (
+                  <li key={idx}>{err}</li>
+                ))}
+              </ul>
+            </div>
+            <button onClick={() => setSessionValidationErrors([])} style={{ width: '100%', padding: '12px 16px', fontSize: 13, fontWeight: 700, borderRadius: 12, border: 'none', color: '#ffffff', background: 'linear-gradient(135deg, #007AFF, #5856D6)', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,122,255,0.2)' }}>
+              Understood
+            </button>
           </div>
         </div>,
         document.body
