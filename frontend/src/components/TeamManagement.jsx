@@ -549,23 +549,36 @@ export default function TeamManagement({ isDark, currentUser }) {
                     
                     {(profileDetails.role !== 'Admin' || currentUser?.role === 'Developer') && (
                       <>
-                        <button
-                          onClick={() => setConfirmAction({ user: profileDetails, action: profileDetails.status === 'frozen' ? 'unfreeze' : 'freeze' })}
-                          className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-sm ${
-                            profileDetails.status === 'frozen'
-                              ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/30'
-                              : 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border-amber-200 dark:border-amber-900/30'
-                          }`}
-                        >
-                          <Shield className="h-3.5 w-3.5" /> {profileDetails.status === 'frozen' ? 'Unfreeze' : 'Freeze'}
-                        </button>
-                        
-                        <button
-                          onClick={() => setConfirmAction({ user: profileDetails, action: 'remove' })}
-                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-200 dark:border-rose-900/30 cursor-pointer transition-all shadow-sm"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" /> Remove
-                        </button>
+                        {profileDetails.status === 'removed' ? (
+                          /* ── Removed user: only show Restore ── */
+                          <button
+                            onClick={() => setConfirmAction({ user: profileDetails, action: 'restore' })}
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-sm bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/30"
+                          >
+                            <Shield className="h-3.5 w-3.5" /> Restore Account
+                          </button>
+                        ) : (
+                          /* ── Active / Frozen user: show Freeze toggle + Remove ── */
+                          <>
+                            <button
+                              onClick={() => setConfirmAction({ user: profileDetails, action: profileDetails.status === 'frozen' ? 'unfreeze' : 'freeze' })}
+                              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border cursor-pointer transition-all shadow-sm ${
+                                profileDetails.status === 'frozen'
+                                  ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/30'
+                                  : 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border-amber-200 dark:border-amber-900/30'
+                              }`}
+                            >
+                              <Shield className="h-3.5 w-3.5" /> {profileDetails.status === 'frozen' ? 'Unfreeze' : 'Freeze'}
+                            </button>
+                            
+                            <button
+                              onClick={() => setConfirmAction({ user: profileDetails, action: 'remove' })}
+                              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-200 dark:border-rose-900/30 cursor-pointer transition-all shadow-sm"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Remove
+                            </button>
+                          </>
+                        )}
                       </>
                     )}
                   </>
@@ -1272,11 +1285,18 @@ export default function TeamManagement({ isDark, currentUser }) {
               boxShadow: '0 24px 64px rgba(0,0,0,0.25)' 
             }}
           >
-            <div className="h-14 w-14 rounded-2xl flex items-center justify-center mx-auto mb-3" style={{ background: confirmAction.action === 'remove' ? 'rgba(255,59,48,0.1)' : confirmAction.action === 'rehire' ? 'rgba(52,199,89,0.1)' : 'rgba(255,149,0,0.1)', color: confirmAction.action === 'remove' ? '#FF3B30' : confirmAction.action === 'rehire' ? '#34C759' : '#FF9500' }}>
+            <div className="h-14 w-14 rounded-2xl flex items-center justify-center mx-auto mb-3" style={{
+              background: confirmAction.action === 'remove' ? 'rgba(255,59,48,0.1)' : ['rehire','restore'].includes(confirmAction.action) ? 'rgba(52,199,89,0.1)' : 'rgba(255,149,0,0.1)',
+              color:      confirmAction.action === 'remove' ? '#FF3B30'           : ['rehire','restore'].includes(confirmAction.action) ? '#34C759'           : '#FF9500'
+            }}>
               <AlertTriangle className="h-7 w-7" />
             </div>
             <h3 className="font-bold text-base mb-1" style={{ color: 'var(--text-primary)' }}>
-              {confirmAction.action === 'remove' ? 'Remove Member' : confirmAction.action === 'freeze' ? 'Freeze Member' : confirmAction.action === 'rehire' ? 'Re-hire Member' : 'Unfreeze Member'}
+              {confirmAction.action === 'remove'  ? 'Remove Member'   :
+               confirmAction.action === 'freeze'  ? 'Freeze Member'   :
+               confirmAction.action === 'rehire'  ? 'Re-hire Member'  :
+               confirmAction.action === 'restore' ? 'Restore Account' :
+               'Unfreeze Member'}
             </h3>
             <p className="text-sm mb-5" style={{ color: 'var(--text-tertiary)' }}>
               {confirmAction.action === 'remove'
@@ -1285,7 +1305,9 @@ export default function TeamManagement({ isDark, currentUser }) {
                   ? `Freeze ${confirmAction.user.name}? They can still log in but will have read-only access.`
                   : confirmAction.action === 'rehire'
                     ? `Are you sure you want to re-hire ${confirmAction.user.name}? They will regain full active access.`
-                    : `Unfreeze ${confirmAction.user.name}? They'll regain full access.`}
+                    : confirmAction.action === 'restore'
+                      ? `Restore ${confirmAction.user.name}'s account? They will regain full active access immediately.`
+                      : `Unfreeze ${confirmAction.user.name}? They'll regain full access.`}
             </p>
             <div className="flex gap-2">
               <button onClick={() => setConfirmAction(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer" style={{ background: 'var(--glass-bg-light)', border: '1px solid var(--glass-border-dim)', color: 'var(--text-secondary)' }}>Cancel</button>
@@ -1293,16 +1315,25 @@ export default function TeamManagement({ isDark, currentUser }) {
                 onClick={() => {
                   if (confirmAction.action === 'remove') {
                     handleRemove(confirmAction.user);
-                  } else if (confirmAction.action === 'rehire') {
+                  } else if (confirmAction.action === 'rehire' || confirmAction.action === 'restore') {
                     handleRehire(confirmAction.user);
                   } else {
                     handleFreeze(confirmAction.user);
                   }
                 }}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
-                style={{ background: confirmAction.action === 'remove' ? 'linear-gradient(180deg,#f87171,#dc2626)' : confirmAction.action === 'freeze' ? 'linear-gradient(180deg,#FFB347,#FF9500)' : 'linear-gradient(180deg,#4CD964,#34C759)', color: '#fff' }}
+                style={{
+                  background: confirmAction.action === 'remove'  ? 'linear-gradient(180deg,#f87171,#dc2626)'  :
+                              confirmAction.action === 'freeze'   ? 'linear-gradient(180deg,#FFB347,#FF9500)'  :
+                              'linear-gradient(180deg,#4CD964,#34C759)',
+                  color: '#fff'
+                }}
               >
-                {confirmAction.action === 'remove' ? 'Remove' : confirmAction.action === 'freeze' ? 'Freeze' : confirmAction.action === 'rehire' ? 'Re-hire' : 'Unfreeze'}
+                {confirmAction.action === 'remove'  ? 'Remove'    :
+                 confirmAction.action === 'freeze'  ? 'Freeze'    :
+                 confirmAction.action === 'rehire'  ? 'Re-hire'   :
+                 confirmAction.action === 'restore' ? 'Restore'   :
+                 'Unfreeze'}
               </button>
             </div>
           </div>
