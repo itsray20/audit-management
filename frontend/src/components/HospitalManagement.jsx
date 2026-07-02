@@ -198,7 +198,7 @@ export default function HospitalManagement({ currentUser, isDark, onSelectAudit 
           currentName: `Fetching report for "${audit.name}"...`
         }));
         
-        const url = `/api/audits/${audit.id}/export?role=${currentUser.role}`;
+        const url = `${API_BASE}/api/audits/${audit.id}/export?role=${currentUser.role}`;
         const res = await axios.get(url, { responseType: 'arraybuffer' });
 
         if (zipCancelledRef.current) {
